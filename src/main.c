@@ -20,7 +20,7 @@
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 640
 #define MENU_FRAME_DELAY_MS 16 // ~60 FPS for menus
-#define GAME_FRAME_DELAY_MS 10 // Minimal delay for gameplay
+#define GAME_FRAME_DELAY_MS 1 // Minimal delay for gameplay
 
 typedef enum
 {
