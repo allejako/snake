@@ -1,0 +1,39 @@
+# Build artifacts
+build/
+bin/
+*.o
+*.a
+*.so
+*.dylib
+
+# Compiled executables
+snake_sdl
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+CLAUDE.md
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.ini
+*.csv
+*.pdf
+
+# Core dumps
+core
+core.*
+
+# Dependencies
+*.d
+
+# Backup files
+*.bak
+*.tmp
