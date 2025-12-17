@@ -1,0 +1,3 @@
+[submodule "src/mpapi"]
+	path = src/mpapi
+	url = https://github.com/robin-onvo/mpapi.git
