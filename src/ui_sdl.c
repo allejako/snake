@@ -1022,3 +1022,152 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *o
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
     return UI_MENU_NONE;
 }
+
+void ui_sdl_render_game_mode_select(UiSdl *ui, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (ui->text_ok)
+    {
+        int cx = ui->w / 2;
+        int y = ui->h / 2 - 100;
+
+        text_draw_center(ui->ren, &ui->text, cx, y, "SELECT GAME MODE");
+        y += 60;
+
+        const char *items[] = {"Classic", "Modern", "Versus"};
+
+        for (int i = 0; i < 3; ++i)
+        {
+            char line[128];
+            if (i == selected_index)
+            {
+                snprintf(line, sizeof(line), "> %s <", items[i]);
+            }
+            else
+            {
+                snprintf(line, sizeof(line), "  %s  ", items[i]);
+            }
+            text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
+        }
+
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "UP/DOWN + ENTER | ESC = Back");
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int *out_quit)
+{
+    *out_quit = 0;
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            // Fixed keys
+            if (key == SDLK_ESCAPE)
+            {
+                return UI_MENU_BACK;
+            }
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+            {
+                return UI_MENU_SELECT;
+            }
+
+            // Dynamic navigation using Player 1's bindings
+            int action = keybindings_find_action(kb, 0, key);
+            if (action == KB_ACTION_UP)
+                return UI_MENU_UP;
+            if (action == KB_ACTION_DOWN)
+                return UI_MENU_DOWN;
+        }
+    }
+
+    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return UI_MENU_NONE;
+}
+
+void ui_sdl_render_speed_select(UiSdl *ui, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (ui->text_ok)
+    {
+        int cx = ui->w / 2;
+        int y = ui->h / 2 - 80;
+
+        text_draw_center(ui->ren, &ui->text, cx, y, "SELECT SPEED");
+        y += 60;
+
+        const char *items[] = {"Slow (130ms)", "Normal (100ms)", "Fast (70ms)"};
+
+        for (int i = 0; i < 3; ++i)
+        {
+            char line[128];
+            if (i == selected_index)
+            {
+                snprintf(line, sizeof(line), "> %s <", items[i]);
+            }
+            else
+            {
+                snprintf(line, sizeof(line), "  %s  ", items[i]);
+            }
+            text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
+        }
+
+        text_draw_center(ui->ren, &ui->text, cx, y + 120, "(Recommended: Normal)");
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "UP/DOWN + ENTER | ESC = Back");
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out_quit)
+{
+    *out_quit = 0;
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            // Fixed keys
+            if (key == SDLK_ESCAPE)
+            {
+                return UI_MENU_BACK;
+            }
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+            {
+                return UI_MENU_SELECT;
+            }
+
+            // Dynamic navigation using Player 1's bindings
+            int action = keybindings_find_action(kb, 0, key);
+            if (action == KB_ACTION_UP)
+                return UI_MENU_UP;
+            if (action == KB_ACTION_DOWN)
+                return UI_MENU_DOWN;
+        }
+    }
+
+    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return UI_MENU_NONE;
+}

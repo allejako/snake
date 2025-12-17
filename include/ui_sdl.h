@@ -82,4 +82,12 @@ typedef struct AudioSdl AudioSdl;
 void ui_sdl_render_sound_settings(UiSdl *ui, const AudioSdl *audio, int selected_index);
 UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
+// Game mode selection menu
+void ui_sdl_render_game_mode_select(UiSdl *ui, int selected_index);
+UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int *out_quit);
+
+// Speed selection menu (for Classic mode)
+void ui_sdl_render_speed_select(UiSdl *ui, int selected_index);
+UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out_quit);
+
 #endif

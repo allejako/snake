@@ -15,7 +15,7 @@
 
 #define BOARD_WIDTH 40
 #define BOARD_HEIGHT 30
-#define TICK_MS 80
+#define TICK_MS 120
 #define PAUSE_MENU_COUNT 3
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 640
@@ -32,7 +32,9 @@ typedef enum
     APP_OPTIONS_MENU,
     APP_KEYBINDS_PLAYER_SELECT,
     APP_KEYBINDS_BINDING,
-    APP_SOUND_SETTINGS
+    APP_SOUND_SETTINGS,
+    APP_GAME_MODE_SELECT,
+    APP_SPEED_SELECT
 } AppState;
 
 typedef enum
@@ -71,6 +73,22 @@ typedef enum
     SOUND_MENU_COUNT
 } SoundMenuItem;
 
+typedef enum
+{
+    GAME_MODE_CLASSIC = 0,
+    GAME_MODE_MODERN,
+    GAME_MODE_VERSUS,
+    GAME_MODE_COUNT
+} GameMode;
+
+typedef enum
+{
+    CLASSIC_SPEED_SLOW = 0,
+    CLASSIC_SPEED_NORMAL,
+    CLASSIC_SPEED_FAST,
+    CLASSIC_SPEED_COUNT
+} ClassicSpeed;
+
 /**
  * Application context containing all state needed by state handlers.
  * This struct uses pointers to allow state handlers to modify values.
@@ -88,6 +106,12 @@ typedef struct
     int *keybind_current_player;  // Currently configuring player (0-3)
     int *keybind_current_action;  // Currently configuring action (0-4)
     int *sound_selected;          // Sound settings cursor position
+    int *game_mode_selected;          // Game mode menu cursor
+    int *speed_selected;              // Speed selection cursor
+    GameMode *current_game_mode;      // Currently selected game mode
+    ClassicSpeed *current_classic_speed; // Persistent speed selection
+    unsigned int *current_tick_ms;    // Runtime-variable tick speed
+    int *modern_mode_score_at_last_speed_update; // Track Modern mode speed changes
     Game *game;                   // Game state
     InputBuffer *input;           // Input buffer for gameplay
     char *player_name;            // Current player name
@@ -138,11 +162,8 @@ static void handle_menu_state(AppContext *ctx)
         switch (*ctx->menu_selected)
         {
         case MENU_SINGLEPLAYER:
-            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
-            input_buffer_clear(ctx->input);
-            *ctx->last_tick = (unsigned int)SDL_GetTicks();
-            *ctx->pending_save_this_round = 1;
-            *ctx->state = APP_SINGLEPLAYER;
+            *ctx->game_mode_selected = 0;
+            *ctx->state = APP_GAME_MODE_SELECT;
             break;
 
         case MENU_MULTIPLAYER:
@@ -165,6 +186,124 @@ static void handle_menu_state(AppContext *ctx)
     }
 
     ui_sdl_render_menu(ctx->ui, *ctx->menu_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle game mode selection state - choose between Classic, Modern, and Versus.
+ * Classic mode proceeds to speed selection, Modern starts immediately, Versus is placeholder.
+ */
+static void handle_game_mode_select_state(AppContext *ctx)
+{
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_game_mode_select(ctx->ui, ctx->keybindings, &quit);
+    if (quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->game_mode_selected = (*ctx->game_mode_selected - 1 + GAME_MODE_COUNT) % GAME_MODE_COUNT;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->game_mode_selected = (*ctx->game_mode_selected + 1) % GAME_MODE_COUNT;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        switch (*ctx->game_mode_selected)
+        {
+        case GAME_MODE_CLASSIC:
+            *ctx->current_game_mode = GAME_MODE_CLASSIC;
+            *ctx->state = APP_SPEED_SELECT;
+            *ctx->speed_selected = 0;
+            break;
+
+        case GAME_MODE_MODERN:
+            *ctx->current_game_mode = GAME_MODE_MODERN;
+            // Start Modern mode immediately - set tick speed to 80ms
+            *ctx->current_tick_ms = 80;
+            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+            input_buffer_clear(ctx->input);
+            *ctx->last_tick = (unsigned int)SDL_GetTicks();
+            *ctx->pending_save_this_round = 1;
+            *ctx->modern_mode_score_at_last_speed_update = 0;
+            *ctx->state = APP_SINGLEPLAYER;
+            break;
+
+        case GAME_MODE_VERSUS:
+            // Placeholder - show coming soon
+            *ctx->state = APP_MULTIPLAYER;
+            break;
+        }
+    }
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_MENU;
+    }
+
+    ui_sdl_render_game_mode_select(ctx->ui, *ctx->game_mode_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle speed selection state - choose game speed for Classic mode.
+ * Speed selection persists across games.
+ */
+static void handle_speed_select_state(AppContext *ctx)
+{
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_speed_select(ctx->ui, ctx->keybindings, &quit);
+    if (quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->speed_selected = (*ctx->speed_selected - 1 + CLASSIC_SPEED_COUNT) % CLASSIC_SPEED_COUNT;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->speed_selected = (*ctx->speed_selected + 1) % CLASSIC_SPEED_COUNT;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        // Update persistent speed selection
+        *ctx->current_classic_speed = (ClassicSpeed)*ctx->speed_selected;
+
+        // Convert ClassicSpeed to milliseconds
+        switch (*ctx->current_classic_speed)
+        {
+        case CLASSIC_SPEED_SLOW:
+            *ctx->current_tick_ms = 130;
+            break;
+        case CLASSIC_SPEED_NORMAL:
+            *ctx->current_tick_ms = 100;
+            break;
+        case CLASSIC_SPEED_FAST:
+            *ctx->current_tick_ms = 70;
+            break;
+        default:
+            *ctx->current_tick_ms = 100;
+        }
+
+        // Initialize game with selected speed and go directly to gameplay
+        game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+        input_buffer_clear(ctx->input);
+        *ctx->last_tick = (unsigned int)SDL_GetTicks();
+        *ctx->pending_save_this_round = 1;
+        *ctx->state = APP_SINGLEPLAYER;
+    }
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_GAME_MODE_SELECT;
+    }
+
+    ui_sdl_render_speed_select(ctx->ui, *ctx->speed_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -546,7 +685,7 @@ static void handle_singleplayer_state(AppContext *ctx)
     }
 
     unsigned int now = (unsigned int)SDL_GetTicks();
-    if (ctx->game->state == GAME_RUNNING && (now - *ctx->last_tick) >= TICK_MS)
+    if (ctx->game->state == GAME_RUNNING && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
     {
         *ctx->last_tick = now;
 
@@ -556,10 +695,26 @@ static void handle_singleplayer_state(AppContext *ctx)
             game_change_direction(ctx->game, next_dir);
         }
         game_update(ctx->game);
+
+        // Modern mode: increase speed every 40 points
+        if (*ctx->current_game_mode == GAME_MODE_MODERN)
+        {
+            int score_delta = ctx->game->score - *ctx->modern_mode_score_at_last_speed_update;
+            int speed_increases = score_delta / 40;
+
+            if (speed_increases > 0)
+            {
+                int new_tick = *ctx->current_tick_ms - (speed_increases * 10);
+                if (new_tick < 40)
+                    new_tick = 40; // Floor at 40ms
+                *ctx->current_tick_ms = new_tick;
+                *ctx->modern_mode_score_at_last_speed_update = ctx->game->score;
+            }
+        }
     }
 
     // Handle death animation
-    if (ctx->game->state == GAME_DYING && (now - *ctx->last_tick) >= TICK_MS)
+    if (ctx->game->state == GAME_DYING && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
     {
         *ctx->last_tick = now;
         if (game_update_death_animation(ctx->game) && !audio_sdl_is_sound_playing(ctx->audio, "explosion"))
@@ -691,6 +846,12 @@ int main(int argc, char *argv[])
     int keybind_current_player = 0;
     int keybind_current_action = 0;
     int sound_selected = 0;
+    int game_mode_selected = 0;
+    int speed_selected = 0;
+    GameMode current_game_mode = GAME_MODE_CLASSIC;
+    ClassicSpeed current_classic_speed = CLASSIC_SPEED_NORMAL;
+    unsigned int current_tick_ms = 100;
+    int modern_mode_score_at_last_speed_update = 0;
 
     Game game;
     InputBuffer input;
@@ -717,6 +878,12 @@ int main(int argc, char *argv[])
         .keybind_current_player = &keybind_current_player,
         .keybind_current_action = &keybind_current_action,
         .sound_selected = &sound_selected,
+        .game_mode_selected = &game_mode_selected,
+        .speed_selected = &speed_selected,
+        .current_game_mode = &current_game_mode,
+        .current_classic_speed = &current_classic_speed,
+        .current_tick_ms = &current_tick_ms,
+        .modern_mode_score_at_last_speed_update = &modern_mode_score_at_last_speed_update,
         .game = &game,
         .input = &input,
         .player_name = player_name,
@@ -744,6 +911,12 @@ int main(int argc, char *argv[])
             break;
         case APP_SOUND_SETTINGS:
             handle_sound_settings_state(&ctx);
+            break;
+        case APP_GAME_MODE_SELECT:
+            handle_game_mode_select_state(&ctx);
+            break;
+        case APP_SPEED_SELECT:
+            handle_speed_select_state(&ctx);
             break;
         case APP_MULTIPLAYER:
             handle_multiplayer_state(&ctx);
