@@ -717,11 +717,11 @@ static void handle_singleplayer_state(AppContext *ctx)
     if (ctx->game->state == GAME_DYING && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
     {
         *ctx->last_tick = now;
-        if (game_update_death_animation(ctx->game) && !audio_sdl_is_sound_playing(ctx->audio, "explosion"))
+        do
         {
             fprintf(stderr, "DEATH: triggering explosion sfx\n");
-            audio_sdl_play_sound(ctx->audio, "explosion");
-        }
+            audio_sdl_play_sound(ctx->audio, "explosion");        
+        } while (game_update_death_animation(ctx->game) && !audio_sdl_is_sound_playing(ctx->audio, "explosion"));
     }
 
     // Save score on GAME_OVER
