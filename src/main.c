@@ -746,41 +746,66 @@ static void handle_multiplayer_game_state(AppContext *ctx)
 
     unsigned int now = (unsigned int)SDL_GetTicks();
 
-    // Update game state
+    // Handle death animations - track sound playback per snake
+    static int death_sound_played[MAX_PLAYERS] = {0, 0, 0, 0};
+
+    // Check for tick update
     if ((now - *ctx->last_tick) >= *ctx->current_tick_ms)
     {
         *ctx->last_tick = now;
 
-        // Process input buffers for all players
+        // Check if any snakes are dying (for animation)
+        int any_dying = 0;
         for (int i = 0; i < MAX_PLAYERS; i++)
         {
-            if (ctx->mp_game->players[i].alive && ctx->mp_game->players[i].death_state == GAME_RUNNING)
+            if (ctx->mp_game->players[i].death_state == GAME_DYING)
             {
-                Direction next_dir;
-                if (input_buffer_pop(&ctx->mp_game->players[i].input, &next_dir))
-                {
-                    multiplayer_game_change_direction(ctx->mp_game, i, next_dir);
-                }
+                any_dying = 1;
+                break;
             }
         }
 
-        multiplayer_game_update(ctx->mp_game);
-    }
-
-    // Handle death animations
-    int any_dying = 0;
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        if (ctx->mp_game->players[i].death_state == GAME_DYING)
+        if (any_dying)
         {
-            any_dying = 1;
-            break;
+            // Update death animations
+            multiplayer_game_update_death_animations(ctx->mp_game);
+        }
+        else
+        {
+            // Process input buffers for all players
+            for (int i = 0; i < MAX_PLAYERS; i++)
+            {
+                if (ctx->mp_game->players[i].alive && ctx->mp_game->players[i].death_state == GAME_RUNNING)
+                {
+                    Direction next_dir;
+                    if (input_buffer_pop(&ctx->mp_game->players[i].input, &next_dir))
+                    {
+                        multiplayer_game_change_direction(ctx->mp_game, i, next_dir);
+                    }
+                }
+            }
+
+            // Update game state (only when not animating deaths)
+            multiplayer_game_update(ctx->mp_game);
         }
     }
 
-    if (any_dying && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
+    // Play sound for newly dying snakes
+    for (int i = 0; i < MAX_PLAYERS; i++)
     {
-        multiplayer_game_update_death_animations(ctx->mp_game);
+        if (ctx->mp_game->players[i].death_state == GAME_DYING && !death_sound_played[i])
+        {
+            if (ctx->audio)
+            {
+                audio_sdl_play_sound(ctx->audio, "explosion");
+            }
+            death_sound_played[i] = 1;
+        }
+        else if (ctx->mp_game->players[i].death_state != GAME_DYING)
+        {
+            // Reset flag when snake is no longer dying (for next round)
+            death_sound_played[i] = 0;
+        }
     }
 
     // Check if game is over
