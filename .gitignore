@@ -17,6 +17,7 @@ snake_sdl
 *~
 .DS_Store
 CLAUDE.md
+*.ini
 
 # Debug files
 *.dSYM/
@@ -25,7 +26,7 @@ CLAUDE.md
 *.pdb
 *.csv
 *.pdf
-*.ini
+
 # Core dumps
 core
 core.*
