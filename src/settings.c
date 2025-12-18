@@ -5,13 +5,13 @@
 
 // Default keybindings for all 4 players
 static const SDL_Keycode DEFAULT_BINDINGS[SETTINGS_MAX_PLAYERS][SETTINGS_ACTIONS_PER_PLAYER] = {
-    // Player 1: WASD + E
+    // Player 1
+    {SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT, SDLK_SPACE},
+    // Player 2
     {SDLK_w, SDLK_s, SDLK_a, SDLK_d, SDLK_e},
-    // Player 2: Arrows + Right Shift
-    {SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT, SDLK_RSHIFT},
-    // Player 3: IJKL + U
+    // Player 3
     {SDLK_i, SDLK_k, SDLK_j, SDLK_l, SDLK_u},
-    // Player 4: TFGH + R
+    // Player 4
     {SDLK_t, SDLK_g, SDLK_f, SDLK_h, SDLK_r}
 };
 

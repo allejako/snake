@@ -25,7 +25,7 @@ CLAUDE.md
 *.pdb
 *.csv
 *.pdf
-
+*.ini
 # Core dumps
 core
 core.*
