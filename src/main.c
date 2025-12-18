@@ -29,7 +29,8 @@
 #define MIN_TICK_MS 40            // Minimum tick time (speed cap)
 
 // Combo system
-#define COMBO_WINDOW_TICKS 30     // Number of ticks player has to eat next food
+#define BASE_COMBO_WINDOW_TICKS 20     // Base window in ticks for tier 1
+#define COMBO_WINDOW_INCREASE_PER_TIER 5  // Additional ticks per tier level
 
 typedef enum
 {
@@ -160,7 +161,7 @@ static void handle_menu_state(AppContext *ctx)
             *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
-            ctx->game->combo_window_ms = TICK_MS * COMBO_WINDOW_TICKS; // Initialize combo window
+            ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Initialize combo window (tier 1)
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
@@ -702,7 +703,7 @@ static void handle_game_over_state(AppContext *ctx)
             *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
-            ctx->game->combo_window_ms = TICK_MS * COMBO_WINDOW_TICKS; // Reset combo window
+            ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Reset combo window (tier 1)
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
@@ -876,8 +877,11 @@ static void handle_singleplayer_state(AppContext *ctx)
         // Handle combo SFX and timer update if food was eaten
         if (ctx->game->food_eaten_this_frame)
         {
-            // Update combo window based on current game speed
-            ctx->game->combo_window_ms = *ctx->current_tick_ms * COMBO_WINDOW_TICKS;
+            // Update combo window based on current game speed and tier
+            // Higher tiers get more time to maintain combo
+            int tier = game_get_combo_tier(ctx->game->combo_count);
+            int window_ticks = BASE_COMBO_WINDOW_TICKS + (tier - 1) * COMBO_WINDOW_INCREASE_PER_TIER;
+            ctx->game->combo_window_ms = *ctx->current_tick_ms * window_ticks;
 
             // Update combo expiry time
             ctx->game->combo_expiry_time = now + ctx->game->combo_window_ms;
@@ -885,7 +889,6 @@ static void handle_singleplayer_state(AppContext *ctx)
             // Play combo SFX
             if (ctx->audio)
             {
-                int tier = game_get_combo_tier(ctx->game->combo_count);
                 char sfx_name[32];
                 snprintf(sfx_name, sizeof(sfx_name), "combo%d", tier);
                 audio_sdl_play_sound(ctx->audio, sfx_name);
