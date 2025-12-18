@@ -144,16 +144,18 @@ static void spawn_food_avoiding_snakes(MultiplayerGame_s *mg, Vec2 *out_food)
 
 void multiplayer_game_update(MultiplayerGame_s *mg)
 {
-    // Update each alive player
+    // First pass: Calculate next positions and determine which snakes will eat food
+    Vec2 next_positions[MAX_PLAYERS];
+    int will_eat_food[MAX_PLAYERS];
+
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
+        will_eat_food[i] = 0;
+
         if (!mg->players[i].alive || mg->players[i].death_state != GAME_RUNNING)
             continue;
 
-        MultiplayerPlayer *player = &mg->players[i];
-        Snake *snake = &player->snake;
-
-        // Calculate next head position
+        Snake *snake = &mg->players[i].snake;
         Vec2 head = snake_head(snake);
         Vec2 next = head;
 
@@ -165,67 +167,132 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
         case DIR_RIGHT: next.x++; break;
         }
 
+        next_positions[i] = next;
+
+        // Check if this snake will eat food
+        if (vec2_equal(next, mg->board.food))
+        {
+            will_eat_food[i] = 1;
+        }
+        else
+        {
+            for (int f = 0; f < mg->food_count; f++)
+            {
+                if (vec2_equal(next, mg->food[f]))
+                {
+                    will_eat_food[i] = 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Second pass: Check collisions for all snakes (don't move yet)
+    int has_collision[MAX_PLAYERS];
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        has_collision[i] = 0;
+
+        if (!mg->players[i].alive || mg->players[i].death_state != GAME_RUNNING)
+            continue;
+
+        Snake *snake = &mg->players[i].snake;
+        Vec2 next = next_positions[i];
+
         // Check wall collision
         if (next.x < 0 || next.x >= mg->board.width ||
             next.y < 0 || next.y >= mg->board.height)
         {
-            player->death_state = GAME_DYING;
+            has_collision[i] = 1;
             continue;
         }
 
         // Check collision with any snake (including self)
-        int collision = 0;
         for (int j = 0; j < MAX_PLAYERS; j++)
         {
             if (!mg->players[j].alive)
                 continue;
 
-            // Check against other snakes' full body
-            if (i != j && snake_occupies(&mg->players[j].snake, next))
+            if (i == j)
             {
-                collision = 1;
-                break;
+                // Check against own body (excluding tail if not growing)
+                if (snake_occupies_excluding_tail(snake, next))
+                {
+                    has_collision[i] = 1;
+                    break;
+                }
             }
-
-            // Check against own body (excluding tail if not growing)
-            if (i == j && snake_occupies_excluding_tail(snake, next))
+            else
             {
-                collision = 1;
-                break;
+                // Check against other snakes' bodies (BEFORE they move)
+                // Exclude tail if that snake is NOT eating food (tail will move away)
+                if (will_eat_food[j])
+                {
+                    // Other snake is eating food, tail won't move - check full body
+                    if (snake_occupies(&mg->players[j].snake, next))
+                    {
+                        has_collision[i] = 1;
+                        break;
+                    }
+                }
+                else
+                {
+                    // Other snake is not eating food, tail will move - exclude it
+                    if (snake_occupies_excluding_tail(&mg->players[j].snake, next))
+                    {
+                        has_collision[i] = 1;
+                        break;
+                    }
+                }
             }
         }
+    }
 
-        if (collision)
+    // Third pass: Handle food consumption and move all snakes
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (!mg->players[i].alive || mg->players[i].death_state != GAME_RUNNING)
+            continue;
+
+        MultiplayerPlayer *player = &mg->players[i];
+
+        // Mark snakes with collisions as dying
+        if (has_collision[i])
         {
             player->death_state = GAME_DYING;
             continue;
         }
 
-        // Check food collision
-        int ate_food = 0;
+        // Handle food consumption
+        int ate_food = will_eat_food[i];
 
-        // Check main board food
-        if (vec2_equal(next, mg->board.food))
+        if (ate_food)
         {
-            ate_food = 1;
-            spawn_food_avoiding_snakes(mg, &mg->board.food);
-        }
+            Vec2 next = next_positions[i];
 
-        // Check additional food items (from dead snakes)
-        for (int f = 0; f < mg->food_count; f++)
-        {
-            if (vec2_equal(next, mg->food[f]))
+            // Check main board food
+            if (vec2_equal(next, mg->board.food))
             {
-                ate_food = 1;
-                // Remove this food by replacing with last food
-                mg->food[f] = mg->food[mg->food_count - 1];
-                mg->food_count--;
-                break;
+                spawn_food_avoiding_snakes(mg, &mg->board.food);
+            }
+            else
+            {
+                // Check additional food items (from dead snakes)
+                for (int f = 0; f < mg->food_count; f++)
+                {
+                    if (vec2_equal(next, mg->food[f]))
+                    {
+                        // Remove this food by replacing with last food
+                        mg->food[f] = mg->food[mg->food_count - 1];
+                        mg->food_count--;
+                        break;
+                    }
+                }
             }
         }
 
         // Move snake
-        snake_step_to(snake, next, ate_food);
+        snake_step_to(&player->snake, next_positions[i], ate_food);
     }
 }
 

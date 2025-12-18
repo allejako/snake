@@ -651,9 +651,16 @@ static void handle_multiplayer_lobby_state(AppContext *ctx)
 
     int running = ui_sdl_poll_multiplayer_lobby(ctx->ui, ctx->keybindings, &quit, players_pressed, &start_pressed);
 
-    if (!running || quit)
+    if (!running)
     {
         *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (quit)
+    {
+        // ESC pressed - go back to speed select
+        *ctx->state = APP_MULTIPLAYER_SPEED_SELECT;
         return;
     }
 
