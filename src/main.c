@@ -145,8 +145,6 @@ typedef struct
  */
 static void handle_menu_state(AppContext *ctx)
 {
-    // Ensure music is playing
-    ensure_music_playing(ctx);
 
     int quit = 0;
     UiMenuAction action = ui_sdl_poll_menu(ctx->ui, ctx->keybindings, &quit);
@@ -843,9 +841,6 @@ static void handle_multiplayer_online_state(AppContext *ctx)
  */
 static void handle_scoreboard_state(AppContext *ctx)
 {
-    // Ensure music is playing (in case it stopped during game over)
-    ensure_music_playing(ctx);
-
     scoreboard_sort(ctx->sb);
     ui_sdl_show_scoreboard(ctx->ui, ctx->sb);
     *ctx->state = APP_MENU;
@@ -938,8 +933,6 @@ static void handle_singleplayer_state(AppContext *ctx)
         return;
     }
 
-    // Monitor music status during gameplay
-    ensure_music_playing(ctx);
 
     ui_sdl_render(ctx->ui, ctx->game, ctx->player_name);
     SDL_Delay(GAME_FRAME_DELAY_MS);
