@@ -746,9 +746,6 @@ static void handle_multiplayer_game_state(AppContext *ctx)
 
     unsigned int now = (unsigned int)SDL_GetTicks();
 
-    // Handle death animations - track sound playback per snake
-    static int death_sound_played[MAX_PLAYERS] = {0, 0, 0, 0};
-
     // Check for tick update
     if ((now - *ctx->last_tick) >= *ctx->current_tick_ms)
     {
@@ -767,6 +764,24 @@ static void handle_multiplayer_game_state(AppContext *ctx)
 
         if (any_dying)
         {
+            // Play explosion sound for each dying snake segment
+            // Sound plays once per tick per dying snake
+            if (ctx->audio)
+            {
+                for (int i = 0; i < MAX_PLAYERS; i++)
+                {
+                    if (ctx->mp_game->players[i].death_state == GAME_DYING)
+                    {
+                        // Play sound for this snake (only if not already playing to avoid overlap)
+                        if (!audio_sdl_is_sound_playing(ctx->audio, "explosion"))
+                        {
+                            audio_sdl_play_sound(ctx->audio, "explosion");
+                        }
+                        break; // Only play once per tick even if multiple snakes dying
+                    }
+                }
+            }
+
             // Update death animations
             multiplayer_game_update_death_animations(ctx->mp_game);
         }
@@ -787,24 +802,6 @@ static void handle_multiplayer_game_state(AppContext *ctx)
 
             // Update game state (only when not animating deaths)
             multiplayer_game_update(ctx->mp_game);
-        }
-    }
-
-    // Play sound for newly dying snakes
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        if (ctx->mp_game->players[i].death_state == GAME_DYING && !death_sound_played[i])
-        {
-            if (ctx->audio)
-            {
-                audio_sdl_play_sound(ctx->audio, "explosion");
-            }
-            death_sound_played[i] = 1;
-        }
-        else if (ctx->mp_game->players[i].death_state != GAME_DYING)
-        {
-            // Reset flag when snake is no longer dying (for next round)
-            death_sound_played[i] = 0;
         }
     }
 
