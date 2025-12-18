@@ -9,10 +9,12 @@
  * Core game state containing board, snake, game status, and score.
  */
 typedef struct {
-    Board board;      // Game board with food
-    Snake snake;      // Snake state (position, length, direction)
-    GameState state;  // Current game state (RUNNING or GAME_OVER)
-    int score;        // Current score
+    Board board;           // Game board with food
+    Snake snake;           // Snake state (position, length, direction)
+    GameState state;       // Current game state (RUNNING or GAME_OVER)
+    int score;             // Current score
+    int fruits_eaten;      // Number of fruits eaten
+    unsigned int start_time; // Game start time (milliseconds)
 } Game;
 
 /**

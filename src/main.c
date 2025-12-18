@@ -27,6 +27,7 @@ typedef enum
 {
     APP_MENU = 0,
     APP_SINGLEPLAYER,
+    APP_GAME_OVER,
     APP_MULTIPLAYER_MENU,
     APP_MULTIPLAYER_SPEED_SELECT,
     APP_MULTIPLAYER_LOBBY,
@@ -134,6 +135,7 @@ typedef struct
     int *paused;                  // Whether game is paused
     int *pause_selected;          // Pause menu cursor position (0-2)
     int *pause_in_options;        // Whether in pause options screen
+    int *game_over_selected;      // Game over menu cursor position (0-1)
     unsigned int *last_tick;      // Last game update tick (ms)
     unsigned int *countdown_start; // Countdown start time (ms)
     int *pending_save_this_round; // Whether score should be saved on game over
@@ -172,6 +174,7 @@ static void handle_menu_state(AppContext *ctx)
             *ctx->current_tick_ms = 100;
             *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+            ctx->game->start_time = (unsigned int)SDL_GetTicks();
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
@@ -852,6 +855,79 @@ static void handle_multiplayer_online_state(AppContext *ctx)
 }
 
 /**
+ * Handle game over screen state.
+ * Shows stats and presents Try Again / Quit options.
+ */
+static void handle_game_over_state(AppContext *ctx)
+{
+    // Calculate time survived
+    unsigned int now = (unsigned int)SDL_GetTicks();
+    int time_seconds = (int)((now - ctx->game->start_time) / 1000);
+
+    // Render game over screen
+    ui_sdl_render_game_over(ctx->ui, ctx->game->score, ctx->game->fruits_eaten, time_seconds, *ctx->game_over_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+
+    // Poll for input
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_game_over(ctx->ui, ctx->keybindings, &quit);
+    if (quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->game_over_selected = (*ctx->game_over_selected - 1 + 2) % 2;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->game_over_selected = (*ctx->game_over_selected + 1) % 2;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        if (*ctx->game_over_selected == 0)
+        {
+            // Try again - restart game
+            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+            ctx->game->start_time = (unsigned int)SDL_GetTicks();
+            *ctx->paused = 0;
+            *ctx->pending_save_this_round = 1;
+            *ctx->last_tick = (unsigned int)SDL_GetTicks();
+            *ctx->modern_mode_score_at_last_speed_update = 0;
+            input_buffer_clear(ctx->input);
+            *ctx->state = APP_SINGLEPLAYER;
+        }
+        else
+        {
+            // Quit - check if score qualifies for top 5
+            int qualifies = scoreboard_qualifies_for_top_n(ctx->sb, ctx->game->score, 5);
+
+            if (qualifies)
+            {
+                char namebuf[SB_MAX_NAME_LEN];
+                if (ui_sdl_get_name(ctx->ui, namebuf, sizeof(namebuf)))
+                {
+                    if (namebuf[0] != '\0')
+                    {
+                        strncpy(ctx->player_name, namebuf, SB_MAX_NAME_LEN - 1);
+                        ctx->player_name[SB_MAX_NAME_LEN - 1] = '\0';
+                    }
+                }
+
+                scoreboard_add(ctx->sb, ctx->player_name, ctx->game->score);
+                scoreboard_sort(ctx->sb);
+                scoreboard_trim_to_top_n(ctx->sb, 5);
+                scoreboard_save(ctx->sb);
+            }
+
+            *ctx->state = APP_MENU;
+        }
+    }
+}
+
+/**
  * Handle scoreboard display state.
  * Shows high scores and waits for keypress, then returns to main menu.
  */
@@ -1024,37 +1100,12 @@ static void handle_singleplayer_state(AppContext *ctx)
         } while (game_update_death_animation(ctx->game) && !audio_sdl_is_sound_playing(ctx->audio, "explosion"));
     }
 
-    // Save score on GAME_OVER
+    // Transition to game over screen on GAME_OVER
     if (ctx->game->state == GAME_OVER && *ctx->pending_save_this_round)
     {
-        // Convert GameMode to ScoreGameMode
-        ScoreGameMode score_mode = (*ctx->current_game_mode == GAME_MODE_MODERN)
-            ? SCORE_MODE_MODERN
-            : SCORE_MODE_CLASSIC;
-
-        // Check if score qualifies for top 10
-        int qualifies = scoreboard_qualifies_for_top_n(ctx->sb, ctx->game->score, score_mode, 10);
-
-        if (qualifies)
-        {
-            char namebuf[SB_MAX_NAME_LEN];
-            if (ui_sdl_get_name(ctx->ui, namebuf, sizeof(namebuf)))
-            {
-                if (namebuf[0] != '\0')
-                {
-                    strncpy(ctx->player_name, namebuf, SB_MAX_NAME_LEN - 1);
-                    ctx->player_name[SB_MAX_NAME_LEN - 1] = '\0';
-                }
-            }
-
-            scoreboard_add(ctx->sb, ctx->player_name, ctx->game->score, score_mode);
-            scoreboard_sort(ctx->sb);
-            scoreboard_trim_to_top_n(ctx->sb, 10);
-            scoreboard_save(ctx->sb);
-        }
-
         *ctx->pending_save_this_round = 0;
-        *ctx->state = APP_SCOREBOARD;
+        *ctx->game_over_selected = 0; // Default to "Try again"
+        *ctx->state = APP_GAME_OVER;
     }
 }
 
@@ -1175,6 +1226,7 @@ int main(int argc, char *argv[])
     int paused = 0;
     int pause_selected = 0;   // 0..2
     int pause_in_options = 0; // 0=pause menu, 1=options screen
+    int game_over_selected = 0; // 0..1 (Try again, Quit)
 
     unsigned int last_tick = 0;
     unsigned int countdown_start = 0;
@@ -1207,6 +1259,7 @@ int main(int argc, char *argv[])
         .paused = &paused,
         .pause_selected = &pause_selected,
         .pause_in_options = &pause_in_options,
+        .game_over_selected = &game_over_selected,
         .last_tick = &last_tick,
         .countdown_start = &countdown_start,
         .pending_save_this_round = &pending_save_this_round};
@@ -1259,6 +1312,9 @@ int main(int argc, char *argv[])
             break;
         case APP_SINGLEPLAYER:
             handle_singleplayer_state(&ctx);
+            break;
+        case APP_GAME_OVER:
+            handle_game_over_state(&ctx);
             break;
         case APP_QUIT:
             break;

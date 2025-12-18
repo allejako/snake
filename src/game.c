@@ -14,6 +14,8 @@ void game_init(Game *g, int width, int height) {
     game_spawn_snake(g);
     g->state = GAME_RUNNING;
     g->score = 0;
+    g->fruits_eaten = 0;
+    g->start_time = 0;
     board_place_food(&g->board, &g->snake);
 }
 
@@ -67,6 +69,7 @@ void game_update(Game *g) {
 
     if (grow) {
         g->score += POINTS_PER_FOOD;
+        g->fruits_eaten++;
         board_place_food(&g->board, &g->snake);
     }
 }

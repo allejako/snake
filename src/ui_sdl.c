@@ -382,7 +382,6 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
     int segment_y = ui->h / 40;
     int offset_y = 3 * segment_y;
     int running = 1;
-    ScoreGameMode current_mode = SCORE_MODE_CLASSIC;
 
     while (running)
     {
@@ -399,15 +398,6 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
                 {
                     running = 0;
                 }
-                // Left/Right to switch modes
-                else if (key == SDLK_LEFT)
-                {
-                    current_mode = SCORE_MODE_CLASSIC;
-                }
-                else if (key == SDLK_RIGHT)
-                {
-                    current_mode = SCORE_MODE_MODERN;
-                }
             }
         }
 
@@ -416,27 +406,20 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
 
         if (ui->text_ok)
         {
-            // Title with mode indicator
-            char title[128];
-            const char *mode_name = (current_mode == SCORE_MODE_CLASSIC) ? "Classic" : "Modern";
-            snprintf(title, sizeof(title), "SCOREBOARD - %s Mode", mode_name);
-            text_draw_center(ui->ren, &ui->text, center_x, segment_y, title);
+            // Title
+            text_draw_center(ui->ren, &ui->text, center_x, segment_y, "HIGH SCORES");
 
             // Instructions
-            text_draw_center(ui->ren, &ui->text, center_x, segment_y + 30, "LEFT/RIGHT = Switch Mode | ENTER = Back");
+            text_draw_center(ui->ren, &ui->text, center_x, segment_y + 30, "ENTER = Back");
 
-            // Filter and display entries for current mode
-            int display_count = 0;
-            for (int i = 0; i < sb->count && display_count < 10; ++i)
+            // Display all entries (up to 5)
+            int display_count = sb->count < 5 ? sb->count : 5;
+            for (int i = 0; i < display_count; ++i)
             {
-                if (sb->entries[i].game_mode == current_mode)
-                {
-                    char row[128];
-                    snprintf(row, sizeof(row), "%2d) %-20s  %d", display_count + 1,
-                             sb->entries[i].name, sb->entries[i].score);
-                    text_draw_center(ui->ren, &ui->text, center_x, offset_y + display_count * segment_y, row);
-                    display_count++;
-                }
+                char row[128];
+                snprintf(row, sizeof(row), "%2d) %-20s  %d", i + 1,
+                         sb->entries[i].name, sb->entries[i].score);
+                text_draw_center(ui->ren, &ui->text, center_x, offset_y + i * segment_y, row);
             }
 
             // Show message if no entries
@@ -1619,4 +1602,86 @@ int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Keybindings *kb, MultiplayerGa
 
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
     return 1;
+}
+
+void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (ui->text_ok)
+    {
+        int cx = ui->w / 2;
+        int y = ui->h / 2 - 120;
+
+        // Title
+        text_draw_center(ui->ren, &ui->text, cx, y, "GAME OVER");
+        y += 60;
+
+        // Stats
+        char line[128];
+        snprintf(line, sizeof(line), "Score: %d", score);
+        text_draw_center(ui->ren, &ui->text, cx, y, line);
+        y += 32;
+
+        snprintf(line, sizeof(line), "Fruits eaten: %d", fruits);
+        text_draw_center(ui->ren, &ui->text, cx, y, line);
+        y += 32;
+
+        int minutes = time_seconds / 60;
+        int seconds = time_seconds % 60;
+        snprintf(line, sizeof(line), "Time survived: %d:%02d", minutes, seconds);
+        text_draw_center(ui->ren, &ui->text, cx, y, line);
+        y += 60;
+
+        // Menu options
+        const char *items[] = {"Try again", "Quit"};
+        for (int i = 0; i < 2; ++i)
+        {
+            if (i == selected_index)
+            {
+                snprintf(line, sizeof(line), "> %s <", items[i]);
+            }
+            else
+            {
+                snprintf(line, sizeof(line), "  %s  ", items[i]);
+            }
+            text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
+        }
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Keybindings *kb, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            // Enter to select
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+            {
+                return UI_MENU_SELECT;
+            }
+
+            // Dynamic navigation using Player 1's bindings
+            int action = keybindings_find_action(kb, 0, key);
+            if (action == KB_ACTION_UP)
+                return UI_MENU_UP;
+            if (action == KB_ACTION_DOWN)
+                return UI_MENU_DOWN;
+        }
+    }
+
+    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return UI_MENU_NONE;
 }

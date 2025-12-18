@@ -111,4 +111,8 @@ UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int 
 void ui_sdl_render_speed_select(UiSdl *ui, const Keybindings *kb, int selected_index);
 UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
+// Game over screen
+void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int selected_index);
+UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Keybindings *kb, int *out_quit);
+
 #endif
