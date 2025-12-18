@@ -172,7 +172,7 @@ int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
     return 1;
 }
-void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name)
+void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
 {
     int ox, oy;
     compute_layout(ui, g, &ox, &oy);
@@ -237,6 +237,14 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name)
         snprintf(hud, sizeof(hud), "Score: %d", g->score);
         text_draw(ui->ren, &ui->text, ox, oy - 28, hud);
 
+        // Debug info - show game speed
+        if (debug_mode)
+        {
+            char debug[64];
+            snprintf(debug, sizeof(debug), "Speed: %ums/tick", current_tick_ms);
+            text_draw(ui->ren, &ui->text, ox + 200, oy - 28, debug);
+        }
+
         // Combo display
         if (g->combo_count > 0)
         {
@@ -287,6 +295,12 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name)
                 // Border
                 SDL_SetRenderDrawColor(ui->ren, 200, 200, 200, 255);
                 SDL_RenderDrawRect(ui->ren, &bg_rect);
+
+                // Show multiplier below the bar
+                int multiplier = game_get_combo_multiplier(g->combo_count);
+                char mult_text[32];
+                snprintf(mult_text, sizeof(mult_text), "x%d Score!", multiplier);
+                text_draw(ui->ren, &ui->text, bar_x, bar_y + 15, mult_text);
             }
         }
 
@@ -304,9 +318,9 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name)
         text_draw_center(ui->ren, &ui->text, cx, cy + 15, "ESC: Back to menu");
     }
 }
-void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name)
+void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
 {
-    ui_sdl_draw_game(ui, g, player_name);
+    ui_sdl_draw_game(ui, g, player_name, debug_mode, current_tick_ms);
     SDL_RenderPresent(ui->ren);
 }
 
@@ -651,10 +665,10 @@ UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Settings *settings, int *out_qu
     return UI_PAUSE_NONE;
 }
 
-void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name, int selected_index)
+void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name, int selected_index, int debug_mode, unsigned int current_tick_ms)
 {
     // Render the game frame behind the pause overlay
-    ui_sdl_draw_game(ui, g, player_name);
+    ui_sdl_draw_game(ui, g, player_name, debug_mode, current_tick_ms);
 
     // Draw a semi-transparent overlay
     SDL_SetRenderDrawBlendMode(ui->ren, SDL_BLENDMODE_BLEND);
@@ -700,10 +714,10 @@ void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name,
     SDL_RenderPresent(ui->ren);
 }
 
-void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_name)
+void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
 {
     // render the game behind
-    ui_sdl_draw_game(ui, g, player_name);
+    ui_sdl_draw_game(ui, g, player_name, debug_mode, current_tick_ms);
 
     SDL_SetRenderDrawBlendMode(ui->ren, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 170);

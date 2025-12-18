@@ -44,9 +44,9 @@ typedef enum {
     UI_PAUSE_SELECT,
     UI_PAUSE_ESCAPE
 } UiPauseAction;
-void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name, int selected_index);
+void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name, int selected_index, int debug_mode, unsigned int current_tick_ms);
 UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Settings *settings, int *out_quit);
-void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_name);
+void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms);
 
 UiSdl *ui_sdl_create(const char *title, int window_w, int window_h);
 void ui_sdl_destroy(UiSdl *ui);
@@ -77,8 +77,8 @@ int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Settings *settings, Multiplaye
 int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction *out_dir, int *out_pause);
 
 // Render
-void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name);
-void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name);
+void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms);
+void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms);
 
 // Name input: minimal (no text rendering), uses SDL's text input
 // Returns 1 if name was retrieved, 0 if user canceled

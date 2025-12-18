@@ -39,7 +39,7 @@ $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
 run: $(BIN)
-	./$(BIN)
+	./$(BIN) $(ARGS)
 
 clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)

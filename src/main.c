@@ -29,7 +29,7 @@
 #define MIN_TICK_MS 40            // Minimum tick time (speed cap)
 
 // Combo system
-#define COMBO_WINDOW_TICKS 13     // Number of ticks player has to eat next food
+#define COMBO_WINDOW_TICKS 30     // Number of ticks player has to eat next food
 
 typedef enum
 {
@@ -125,6 +125,7 @@ typedef struct
     unsigned int *last_tick;      // Last game update tick (ms)
     unsigned int *countdown_start; // Countdown start time (ms)
     int *pending_save_this_round; // Whether score should be saved on game over
+    int debug_mode;               // Debug mode flag (shows game speed)
 } AppContext;
 
 /**
@@ -697,12 +698,14 @@ static void handle_game_over_state(AppContext *ctx)
         if (*ctx->game_over_selected == 0)
         {
             // Try again - restart game
+            *ctx->current_tick_ms = TICK_MS; // Reset to normal speed
+            *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
+            ctx->game->combo_window_ms = TICK_MS * COMBO_WINDOW_TICKS; // Reset combo window
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
-            *ctx->modern_mode_score_at_last_speed_update = 0;
             input_buffer_clear(ctx->input);
             *ctx->state = APP_SINGLEPLAYER;
         }
@@ -751,7 +754,7 @@ static void handle_singleplayer_state(AppContext *ctx)
                 }
             }
 
-            ui_sdl_render_pause_options(ctx->ui, ctx->game, ctx->player_name);
+            ui_sdl_render_pause_options(ctx->ui, ctx->game, ctx->player_name, ctx->debug_mode, *ctx->current_tick_ms);
             SDL_Delay(MENU_FRAME_DELAY_MS);
             return;
         }
@@ -811,13 +814,13 @@ static void handle_singleplayer_state(AppContext *ctx)
             }
         }
 
-        ui_sdl_render_pause_menu(ctx->ui, ctx->game, ctx->player_name, *ctx->pause_selected);
+        ui_sdl_render_pause_menu(ctx->ui, ctx->game, ctx->player_name, *ctx->pause_selected, ctx->debug_mode, *ctx->current_tick_ms);
         SDL_Delay(MENU_FRAME_DELAY_MS);
         return;
     }
 
 
-    ui_sdl_render(ctx->ui, ctx->game, ctx->player_name);
+    ui_sdl_render(ctx->ui, ctx->game, ctx->player_name, ctx->debug_mode, *ctx->current_tick_ms);
     SDL_Delay(GAME_FRAME_DELAY_MS);
 
     // Gameplay input + tick
@@ -942,6 +945,7 @@ int main(int argc, char *argv[])
 
     // Parse command-line arguments
     int enable_audio = 1; // Audio enabled by default
+    int debug_mode = 0;   // Debug mode disabled by default
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--no-audio") == 0 || strcmp(argv[i], "-na") == 0)
@@ -949,12 +953,18 @@ int main(int argc, char *argv[])
             enable_audio = 0;
             fprintf(stderr, "Audio disabled via command-line flag\n");
         }
+        else if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0)
+        {
+            debug_mode = 1;
+            fprintf(stderr, "Debug mode enabled\n");
+        }
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
         {
             printf("SnakeGPT - Snake Game\n");
             printf("Usage: %s [options]\n", argv[0]);
             printf("Options:\n");
             printf("  --no-audio, -na    Disable audio (useful for WSL2)\n");
+            printf("  --debug, -d        Enable debug mode (shows game speed)\n");
             printf("  --help, -h         Show this help message\n");
             return 0;
         }
@@ -1115,7 +1125,8 @@ int main(int argc, char *argv[])
         .game_over_selected = &game_over_selected,
         .last_tick = &last_tick,
         .countdown_start = &countdown_start,
-        .pending_save_this_round = &pending_save_this_round};
+        .pending_save_this_round = &pending_save_this_round,
+        .debug_mode = debug_mode};
 
     while (state != APP_QUIT)
     {
