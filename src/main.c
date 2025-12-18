@@ -167,8 +167,16 @@ static void handle_menu_state(AppContext *ctx)
         switch (*ctx->menu_selected)
         {
         case MENU_SINGLEPLAYER:
-            *ctx->game_mode_selected = 0;
-            *ctx->state = APP_GAME_MODE_SELECT;
+            // Start directly in Modern mode with default speed
+            *ctx->current_game_mode = GAME_MODE_MODERN;
+            *ctx->current_tick_ms = 100;
+            *ctx->modern_mode_score_at_last_speed_update = 0;
+            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+            *ctx->paused = 0;
+            *ctx->pending_save_this_round = 1;
+            *ctx->last_tick = (unsigned int)SDL_GetTicks();
+            input_buffer_clear(ctx->input);
+            *ctx->state = APP_SINGLEPLAYER;
             break;
 
         case MENU_MULTIPLAYER:
@@ -567,8 +575,10 @@ static void handle_multiplayer_menu_state(AppContext *ctx)
     {
         if (*ctx->multiplayer_menu_selected == MULTIPLAYER_MENU_LOCAL)
         {
-            *ctx->state = APP_MULTIPLAYER_SPEED_SELECT;
-            *ctx->speed_selected = 0;
+            // Start directly in lobby with default speed
+            *ctx->current_tick_ms = 100;
+            multiplayer_game_init(ctx->mp_game, BOARD_WIDTH, BOARD_HEIGHT);
+            *ctx->state = APP_MULTIPLAYER_LOBBY;
         }
         else if (*ctx->multiplayer_menu_selected == MULTIPLAYER_MENU_ONLINE)
         {
@@ -659,8 +669,8 @@ static void handle_multiplayer_lobby_state(AppContext *ctx)
 
     if (quit)
     {
-        // ESC pressed - go back to speed select
-        *ctx->state = APP_MULTIPLAYER_SPEED_SELECT;
+        // ESC pressed - go back to multiplayer menu
+        *ctx->state = APP_MULTIPLAYER_MENU;
         return;
     }
 
