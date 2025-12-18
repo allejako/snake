@@ -80,9 +80,10 @@ int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction
 void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name);
 void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name);
 
-// "Game over" name input: minimal (no text rendering), uses SDL's text input
+// Name input: minimal (no text rendering), uses SDL's text input
 // Returns 1 if name was retrieved, 0 if user canceled
-int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size);
+// If show_game_over is 1, displays "GAME OVER" title; otherwise just shows the prompt
+int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size, int show_game_over);
 
 void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb);
 
@@ -102,14 +103,6 @@ SDL_Keycode ui_sdl_poll_keybind_input(UiSdl *ui, int *out_cancel, int *out_quit)
 typedef struct AudioSdl AudioSdl;
 void ui_sdl_render_sound_settings(UiSdl *ui, const Settings *settings, const AudioSdl *audio, int selected_index);
 UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int *out_quit);
-
-// Game mode selection menu
-void ui_sdl_render_game_mode_select(UiSdl *ui, const Settings *settings, int selected_index);
-UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Settings *settings, int *out_quit);
-
-// Speed selection menu (for Classic mode)
-void ui_sdl_render_speed_select(UiSdl *ui, const Settings *settings, int selected_index);
-UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Game over screen
 void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int selected_index);

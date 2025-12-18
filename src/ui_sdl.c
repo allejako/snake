@@ -257,7 +257,7 @@ void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name)
     SDL_RenderPresent(ui->ren);
 }
 
-int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size)
+int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size, int show_game_over)
 {
     if (!ui || !ui->text_ok || !out_name || out_size <= 1)
         return 0;
@@ -345,11 +345,18 @@ int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size)
         SDL_RenderDrawRect(ui->ren, &box);
 
         // Text
-        text_draw_center(ui->ren, &ui->text, cx, box.y + 30,
-                         "GAME OVER");
-
-        text_draw_center(ui->ren, &ui->text, cx, box.y + 70,
-                         "Enter your name:");
+        if (show_game_over)
+        {
+            text_draw_center(ui->ren, &ui->text, cx, box.y + 30,
+                             "GAME OVER");
+            text_draw_center(ui->ren, &ui->text, cx, box.y + 70,
+                             "Enter your name:");
+        }
+        else
+        {
+            text_draw_center(ui->ren, &ui->text, cx, box.y + 50,
+                             "Enter your name:");
+        }
 
         // Visa input (eller placeholder)
         char display[128];
@@ -410,7 +417,7 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
             text_draw_center(ui->ren, &ui->text, center_x, segment_y, "HIGH SCORES");
 
             // Instructions
-            text_draw_center(ui->ren, &ui->text, center_x, segment_y + 30, "ENTER = Back");
+            text_draw_center(ui->ren, &ui->text, center_x, ui->h - 40, "ESC = Back");
 
             // Display all entries (up to 5)
             int display_count = sb->count < 5 ? sb->count : 5;
@@ -1061,164 +1068,6 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int
                 return UI_MENU_LEFT;
             if (action == SETTING_ACTION_RIGHT)
                 return UI_MENU_RIGHT;
-        }
-    }
-
-    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
-    return UI_MENU_NONE;
-}
-
-void ui_sdl_render_game_mode_select(UiSdl *ui, const Settings *settings, int selected_index)
-{
-    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
-    SDL_RenderClear(ui->ren);
-
-    if (ui->text_ok)
-    {
-        int cx = ui->w / 2;
-        int y = ui->h / 2 - 100;
-
-        text_draw_center(ui->ren, &ui->text, cx, y, "SELECT GAME MODE");
-        y += 60;
-
-        const char *items[] = {"Classic", "Modern", "Versus", "Back"};
-
-        for (int i = 0; i < 4; ++i)
-        {
-            char line[128];
-            if (i == selected_index)
-            {
-                snprintf(line, sizeof(line), "> %s <", items[i]);
-            }
-            else
-            {
-                snprintf(line, sizeof(line), "  %s  ", items[i]);
-            }
-            text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
-        }
-
-        // Build instruction string with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
-        char instructions[128];
-        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
-
-UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Settings *settings, int *out_quit)
-{
-    *out_quit = 0;
-
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
-    {
-        if (e.type == SDL_QUIT)
-        {
-            *out_quit = 1;
-            return UI_MENU_NONE;
-        }
-        if (e.type == SDL_KEYDOWN)
-        {
-            SDL_Keycode key = e.key.keysym.sym;
-
-            // Fixed keys
-            if (key == SDLK_ESCAPE)
-            {
-                return UI_MENU_BACK;
-            }
-            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
-            {
-                return UI_MENU_SELECT;
-            }
-
-            // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings, 0, key);
-            if (action == SETTING_ACTION_UP)
-                return UI_MENU_UP;
-            if (action == SETTING_ACTION_DOWN)
-                return UI_MENU_DOWN;
-        }
-    }
-
-    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
-    return UI_MENU_NONE;
-}
-
-void ui_sdl_render_speed_select(UiSdl *ui, const Settings *settings, int selected_index)
-{
-    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
-    SDL_RenderClear(ui->ren);
-
-    if (ui->text_ok)
-    {
-        int cx = ui->w / 2;
-        int y = ui->h / 2 - 80;
-
-        text_draw_center(ui->ren, &ui->text, cx, y, "SELECT SPEED");
-        y += 60;
-
-        const char *items[] = {"Slow", "Normal", "Fast"};
-
-        for (int i = 0; i < 3; ++i)
-        {
-            char line[128];
-            if (i == selected_index)
-            {
-                snprintf(line, sizeof(line), "> %s <", items[i]);
-            }
-            else
-            {
-                snprintf(line, sizeof(line), "  %s  ", items[i]);
-            }
-            text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
-        }
-
-        // Build instruction string with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
-        char instructions[128];
-        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
-
-UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Settings *settings, int *out_quit)
-{
-    *out_quit = 0;
-
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
-    {
-        if (e.type == SDL_QUIT)
-        {
-            *out_quit = 1;
-            return UI_MENU_NONE;
-        }
-        if (e.type == SDL_KEYDOWN)
-        {
-            SDL_Keycode key = e.key.keysym.sym;
-
-            // Fixed keys
-            if (key == SDLK_ESCAPE)
-            {
-                return UI_MENU_BACK;
-            }
-            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
-            {
-                return UI_MENU_SELECT;
-            }
-
-            // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings, 0, key);
-            if (action == SETTING_ACTION_UP)
-                return UI_MENU_UP;
-            if (action == SETTING_ACTION_DOWN)
-                return UI_MENU_DOWN;
         }
     }
 
