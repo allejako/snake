@@ -14,8 +14,8 @@
 #include "audio_sdl.h"
 #include <SDL2/SDL_ttf.h>
 
-#define BOARD_WIDTH 40
-#define BOARD_HEIGHT 30
+#define BOARD_WIDTH 20
+#define BOARD_HEIGHT 20
 #define TICK_MS 120
 #define PAUSE_MENU_COUNT 3
 #define WINDOW_WIDTH 960
@@ -430,7 +430,7 @@ static void handle_multiplayer_menu_state(AppContext *ctx)
         if (*ctx->multiplayer_menu_selected == MULTIPLAYER_MENU_LOCAL)
         {
             // Start directly in lobby with default speed
-            *ctx->current_tick_ms = 100;
+            *ctx->current_tick_ms = TICK_MS;
             multiplayer_game_init(ctx->mp_game, BOARD_WIDTH, BOARD_HEIGHT);
             *ctx->state = APP_MULTIPLAYER_LOBBY;
         }
@@ -1056,7 +1056,7 @@ int main(int argc, char *argv[])
     int keybind_current_player = 0;
     int keybind_current_action = 0;
     int sound_selected = 0;
-    unsigned int current_tick_ms = 100;
+    unsigned int current_tick_ms = TICK_MS;
     int modern_mode_score_at_last_speed_update = 0;
 
     Game game;
