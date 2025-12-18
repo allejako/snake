@@ -1,6 +1,7 @@
 #include "game.h"
 
 #define POINTS_PER_FOOD 10
+#define COMBO_WINDOW_MS 1250  // 1.25 seconds
 
 static void game_spawn_snake(Game *g) {
     Vec2 start;
@@ -17,6 +18,14 @@ void game_init(Game *g, int width, int height) {
     g->fruits_eaten = 0;
     g->start_time = 0;
     g->death_time = 0;
+
+    // Initialize combo system
+    g->combo_count = 0;
+    g->combo_expiry_time = 0;
+    g->combo_window_ms = COMBO_WINDOW_MS;
+    g->combo_best = 0;
+    g->food_eaten_this_frame = 0;
+
     board_place_food(&g->board, &g->snake);
 }
 
@@ -30,6 +39,9 @@ void game_change_direction(Game *g, Direction dir) {
 
 void game_update(Game *g) {
     if (g->state != GAME_RUNNING) return;
+
+    // Clear food eaten flag
+    g->food_eaten_this_frame = 0;
 
     Vec2 head = snake_head(&g->snake);
     Vec2 newHead = head;
@@ -69,8 +81,32 @@ void game_update(Game *g) {
     snake_step_to(&g->snake, newHead, grow);
 
     if (grow) {
-        g->score += POINTS_PER_FOOD;
+        // Handle combo
+        if (g->combo_count > 0 && g->combo_expiry_time > 0) {
+            // Combo continues
+            g->combo_count++;
+        } else {
+            // New combo starts
+            g->combo_count = 1;
+        }
+
+        // Update best combo
+        if (g->combo_count > g->combo_best) {
+            g->combo_best = g->combo_count;
+        }
+
+        // Reset combo timer (will be set to actual time in main.c)
+        // For now we just mark that we need a timer update
+        g->combo_expiry_time = 1; // Placeholder, updated in main.c
+
+        // Calculate score with multiplier
+        int multiplier = game_get_combo_multiplier(g->combo_count);
+        g->score += POINTS_PER_FOOD * multiplier;
         g->fruits_eaten++;
+
+        // Set flag for SFX
+        g->food_eaten_this_frame = 1;
+
         board_place_food(&g->board, &g->snake);
     }
 }
@@ -92,4 +128,28 @@ int game_update_death_animation(Game *g) {
     // No segments left
     g->state = GAME_OVER;
     return 0;
+}
+
+void game_update_combo_timer(Game *g, unsigned int current_time) {
+    if (g->combo_count > 0 && current_time >= g->combo_expiry_time) {
+        // Combo expired
+        g->combo_count = 0;
+        g->combo_expiry_time = 0;
+    }
+}
+
+int game_get_combo_tier(int combo_count) {
+    if (combo_count <= 1) return 1;
+    if (combo_count <= 3) return 2;
+    if (combo_count <= 6) return 3;
+    if (combo_count <= 10) return 4;
+    return 5;
+}
+
+int game_get_combo_multiplier(int combo_count) {
+    if (combo_count <= 1) return 1;
+    if (combo_count <= 3) return 2;
+    if (combo_count <= 6) return 3;
+    if (combo_count <= 10) return 4;
+    return 5;
 }

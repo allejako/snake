@@ -843,6 +843,13 @@ static void handle_singleplayer_state(AppContext *ctx)
     }
 
     unsigned int now = (unsigned int)SDL_GetTicks();
+
+    // Update combo timer (every frame)
+    if (ctx->game->state == GAME_RUNNING)
+    {
+        game_update_combo_timer(ctx->game, now);
+    }
+
     if (ctx->game->state == GAME_RUNNING && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
     {
         *ctx->last_tick = now;
@@ -853,6 +860,22 @@ static void handle_singleplayer_state(AppContext *ctx)
             game_change_direction(ctx->game, next_dir);
         }
         game_update(ctx->game);
+
+        // Handle combo SFX and timer update if food was eaten
+        if (ctx->game->food_eaten_this_frame)
+        {
+            // Update combo expiry time
+            ctx->game->combo_expiry_time = now + ctx->game->combo_window_ms;
+
+            // Play combo SFX
+            if (ctx->audio)
+            {
+                int tier = game_get_combo_tier(ctx->game->combo_count);
+                char sfx_name[32];
+                snprintf(sfx_name, sizeof(sfx_name), "combo%d", tier);
+                audio_sdl_play_sound(ctx->audio, sfx_name);
+            }
+        }
 
         // Modern mode: increase speed every 40 points
         int score_delta = ctx->game->score - *ctx->modern_mode_score_at_last_speed_update;
@@ -978,6 +1001,24 @@ int main(int argc, char *argv[])
             if (!audio_sdl_load_sound(audio, "assets/audio/hitmarker.wav", "explosion"))
             {
                 fprintf(stderr, "Warning: Failed to load explosion sound effect\n");
+            }
+
+            // Load combo sound effects (5 tiers)
+            const char *combo_files[] = {
+                "assets/audio/combo1.wav",
+                "assets/audio/combo2.wav",
+                "assets/audio/combo3.wav",
+                "assets/audio/combo4.wav",
+                "assets/audio/combo5.wav"
+            };
+            for (int i = 0; i < 5; i++)
+            {
+                char name[16];
+                snprintf(name, sizeof(name), "combo%d", i + 1);
+                if (!audio_sdl_load_sound(audio, combo_files[i], name))
+                {
+                    fprintf(stderr, "Warning: Failed to load %s\n", combo_files[i]);
+                }
             }
         }
     }

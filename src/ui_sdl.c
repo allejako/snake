@@ -237,6 +237,59 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name)
         snprintf(hud, sizeof(hud), "Score: %d", g->score);
         text_draw(ui->ren, &ui->text, ox, oy - 28, hud);
 
+        // Combo display
+        if (g->combo_count > 0)
+        {
+            unsigned int now = (unsigned int)SDL_GetTicks();
+
+            // Display combo text
+            char combo_text[32];
+            snprintf(combo_text, sizeof(combo_text), "COMBO x%d", g->combo_count);
+            int combo_x = ox + (g->board.width + 2) * ui->cell + 20;
+            int combo_y = oy + 10;
+            text_draw(ui->ren, &ui->text, combo_x, combo_y, combo_text);
+
+            // Draw combo timer bar
+            if (now < g->combo_expiry_time)
+            {
+                float time_remaining = (float)(g->combo_expiry_time - now);
+                float time_total = (float)g->combo_window_ms;
+                float fill_ratio = time_remaining / time_total;
+
+                int bar_width = 120;
+                int bar_height = 8;
+                int bar_x = combo_x;
+                int bar_y = combo_y + 25;
+
+                // Background (empty bar)
+                SDL_Rect bg_rect = {bar_x, bar_y, bar_width, bar_height};
+                SDL_SetRenderDrawColor(ui->ren, 50, 50, 50, 255);
+                SDL_RenderFillRect(ui->ren, &bg_rect);
+
+                // Filled portion (timer)
+                SDL_Rect fill_rect = {bar_x, bar_y, (int)(bar_width * fill_ratio), bar_height};
+
+                // Color based on tier
+                int tier = game_get_combo_tier(g->combo_count);
+                if (tier >= 5)
+                    SDL_SetRenderDrawColor(ui->ren, 255, 50, 50, 255);    // Red (max tier)
+                else if (tier >= 4)
+                    SDL_SetRenderDrawColor(ui->ren, 255, 150, 50, 255);   // Orange
+                else if (tier >= 3)
+                    SDL_SetRenderDrawColor(ui->ren, 255, 220, 50, 255);   // Yellow
+                else if (tier >= 2)
+                    SDL_SetRenderDrawColor(ui->ren, 100, 200, 255, 255);  // Light blue
+                else
+                    SDL_SetRenderDrawColor(ui->ren, 150, 255, 150, 255);  // Light green
+
+                SDL_RenderFillRect(ui->ren, &fill_rect);
+
+                // Border
+                SDL_SetRenderDrawColor(ui->ren, 200, 200, 200, 255);
+                SDL_RenderDrawRect(ui->ren, &bg_rect);
+            }
+        }
+
         text_draw(ui->ren, &ui->text, ox, oy + (g->board.height + 2) * ui->cell + 8,
                   "Use keybinds to move | ESC: pause");
     }
