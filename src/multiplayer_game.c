@@ -4,10 +4,10 @@
 
 // Starting positions for each player (in board coordinates)
 static const Vec2 START_POSITIONS[MAX_PLAYERS] = {
-    {5, 5},    // Player 1: top-left area
-    {34, 5},   // Player 2: top-right area
-    {5, 24},   // Player 3: bottom-left area
-    {34, 24}   // Player 4: bottom-right area
+    {2, 2},    // Player 1: top-left area
+    {18, 2},   // Player 2: top-right area
+    {2, 18},   // Player 3: bottom-left area
+    {18, 18}   // Player 4: bottom-right area
 };
 
 static const Direction START_DIRECTIONS[MAX_PLAYERS] = {
