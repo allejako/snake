@@ -750,6 +750,7 @@ static void handle_multiplayer_game_state(AppContext *ctx)
             }
         }
 
+        // Handle death animations for dying snakes
         if (any_dying)
         {
             // Count segments before animation update
@@ -783,24 +784,22 @@ static void handle_multiplayer_game_state(AppContext *ctx)
                 audio_sdl_play_sound(ctx->audio, "explosion");
             }
         }
-        else
+
+        // Process input buffers for all living players
+        for (int i = 0; i < MAX_PLAYERS; i++)
         {
-            // Process input buffers for all players
-            for (int i = 0; i < MAX_PLAYERS; i++)
+            if (ctx->mp_game->players[i].alive && ctx->mp_game->players[i].death_state == GAME_RUNNING)
             {
-                if (ctx->mp_game->players[i].alive && ctx->mp_game->players[i].death_state == GAME_RUNNING)
+                Direction next_dir;
+                if (input_buffer_pop(&ctx->mp_game->players[i].input, &next_dir))
                 {
-                    Direction next_dir;
-                    if (input_buffer_pop(&ctx->mp_game->players[i].input, &next_dir))
-                    {
-                        multiplayer_game_change_direction(ctx->mp_game, i, next_dir);
-                    }
+                    multiplayer_game_change_direction(ctx->mp_game, i, next_dir);
                 }
             }
-
-            // Update game state (only when not animating deaths)
-            multiplayer_game_update(ctx->mp_game);
         }
+
+        // Update game state for all living snakes
+        multiplayer_game_update(ctx->mp_game);
     }
 
     // Check if game is over
