@@ -279,8 +279,12 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
 
                 // Color based on tier
                 int tier = game_get_combo_tier(g->combo_count);
-                if (tier >= 5)
-                    SDL_SetRenderDrawColor(ui->ren, 255, 50, 50, 255);    // Red (max tier)
+                if (tier >= 7)
+                    SDL_SetRenderDrawColor(ui->ren, 255, 50, 255, 255);   // Bright magenta (ultimate)
+                else if (tier >= 6)
+                    SDL_SetRenderDrawColor(ui->ren, 200, 50, 255, 255);   // Purple
+                else if (tier >= 5)
+                    SDL_SetRenderDrawColor(ui->ren, 255, 50, 50, 255);    // Red
                 else if (tier >= 4)
                     SDL_SetRenderDrawColor(ui->ren, 255, 150, 50, 255);   // Orange
                 else if (tier >= 3)

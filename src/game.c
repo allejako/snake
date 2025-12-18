@@ -142,7 +142,9 @@ int game_get_combo_tier(int combo_count) {
     if (combo_count <= 3) return 2;
     if (combo_count <= 6) return 3;
     if (combo_count <= 10) return 4;
-    return 5;
+    if (combo_count <= 15) return 5;
+    if (combo_count <= 21) return 6;
+    return 7;
 }
 
 int game_get_combo_multiplier(int combo_count) {
@@ -150,5 +152,7 @@ int game_get_combo_multiplier(int combo_count) {
     if (combo_count <= 3) return 2;
     if (combo_count <= 6) return 3;
     if (combo_count <= 10) return 4;
-    return 5;
+    if (combo_count <= 15) return 5;
+    if (combo_count <= 21) return 6;
+    return 7;
 }

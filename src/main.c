@@ -27,7 +27,7 @@
 // Speed curve parameters
 #define SPEED_START_MS 95.0f      // Starting tick time
 #define SPEED_FLOOR_MS 40.0f      // Minimum tick time (speed cap)
-#define SPEED_CURVE_K 0.12f       // Exponential decay rate (tuned for food count)
+#define SPEED_CURVE_K 0.08f       // Exponential decay rate (tuned for food count)
 
 // Combo system
 #define BASE_COMBO_WINDOW_TICKS 20     // Base window in ticks for tier 1
@@ -1026,15 +1026,17 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Warning: Failed to load explosion sound effect\n");
             }
 
-            // Load combo sound effects (5 tiers)
+            // Load combo sound effects (7 tiers)
             const char *combo_files[] = {
                 "assets/audio/combo1.wav",
                 "assets/audio/combo2.wav",
                 "assets/audio/combo3.wav",
                 "assets/audio/combo4.wav",
-                "assets/audio/combo5.wav"
+                "assets/audio/combo5.wav",
+                "assets/audio/combo6.wav",
+                "assets/audio/combo7.wav"
             };
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 7; i++)
             {
                 char name[16];
                 snprintf(name, sizeof(name), "combo%d", i + 1);
