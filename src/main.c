@@ -140,16 +140,6 @@ typedef struct
 } AppContext;
 
 /**
- * Music monitoring disabled - no longer needed with Simple Audio
- * This was used to debug SDL_mixer stuttering issues
- */
-static void ensure_music_playing(AppContext *ctx)
-{
-    (void)ctx; // Unused - music monitoring disabled
-    // Music monitoring removed since Simple Audio handles playback reliably
-}
-
-/**
  * Handle main menu state - navigate menu and launch game modes.
  * Updates state to transition to selected mode (singleplayer, multiplayer, options, etc.)
  */
@@ -764,26 +754,36 @@ static void handle_multiplayer_game_state(AppContext *ctx)
 
         if (any_dying)
         {
-            // Play explosion sound for each dying snake segment
-            // Sound plays once per tick per dying snake
-            if (ctx->audio)
+            // Count segments before animation update
+            int segments_before = 0;
+            for (int i = 0; i < MAX_PLAYERS; i++)
             {
-                for (int i = 0; i < MAX_PLAYERS; i++)
+                if (ctx->mp_game->players[i].death_state == GAME_DYING)
                 {
-                    if (ctx->mp_game->players[i].death_state == GAME_DYING)
-                    {
-                        // Play sound for this snake (only if not already playing to avoid overlap)
-                        if (!audio_sdl_is_sound_playing(ctx->audio, "explosion"))
-                        {
-                            audio_sdl_play_sound(ctx->audio, "explosion");
-                        }
-                        break; // Only play once per tick even if multiple snakes dying
-                    }
+                    segments_before += ctx->mp_game->players[i].snake.length;
                 }
             }
 
-            // Update death animations
+            // Update death animations (removes segments)
             multiplayer_game_update_death_animations(ctx->mp_game);
+
+            // Count segments after animation update
+            int segments_after = 0;
+            for (int i = 0; i < MAX_PLAYERS; i++)
+            {
+                if (ctx->mp_game->players[i].death_state == GAME_DYING)
+                {
+                    segments_after += ctx->mp_game->players[i].snake.length;
+                }
+            }
+
+            // Play explosion sound once for each segment removed
+            int segments_removed = segments_before - segments_after;
+            if (ctx->audio && segments_removed > 0)
+            {
+                // Play sound (limit to once per tick to avoid excessive overlap)
+                audio_sdl_play_sound(ctx->audio, "explosion");
+            }
         }
         else
         {
