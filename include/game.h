@@ -15,6 +15,7 @@ typedef struct {
     int score;             // Current score
     int fruits_eaten;      // Number of fruits eaten
     unsigned int start_time; // Game start time (milliseconds)
+    unsigned int death_time; // Game death time (milliseconds)
 } Game;
 
 /**

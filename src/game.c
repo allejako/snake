@@ -16,6 +16,7 @@ void game_init(Game *g, int width, int height) {
     g->score = 0;
     g->fruits_eaten = 0;
     g->start_time = 0;
+    g->death_time = 0;
     board_place_food(&g->board, &g->snake);
 }
 

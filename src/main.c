@@ -10,7 +10,7 @@
 #include "scoreboard.h"
 #include "ui_sdl.h"
 #include "input_buffer.h"
-#include "keybindings.h"
+#include "settings.h"
 #include "audio_sdl.h"
 #include <SDL2/SDL_ttf.h>
 
@@ -112,7 +112,7 @@ typedef struct
 {
     UiSdl *ui;                    // UI system handle
     AudioSdl *audio;              // Audio system handle
-    Keybindings *keybindings;     // Keybindings configuration
+    Settings *settings;           // Unified settings (profile, audio, keybindings)
     Scoreboard *sb;               // Scoreboard for high scores
     AppState *state;              // Current application state
     int *menu_selected;           // Main menu cursor position
@@ -149,7 +149,7 @@ static void handle_menu_state(AppContext *ctx)
 {
 
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_menu(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_menu(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -202,7 +202,7 @@ static void handle_menu_state(AppContext *ctx)
         }
     }
 
-    ui_sdl_render_menu(ctx->ui, ctx->keybindings, *ctx->menu_selected);
+    ui_sdl_render_menu(ctx->ui, ctx->settings, *ctx->menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -213,7 +213,7 @@ static void handle_menu_state(AppContext *ctx)
 static void handle_game_mode_select_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_game_mode_select(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_game_mode_select(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -273,7 +273,7 @@ static void handle_game_mode_select_state(AppContext *ctx)
         *ctx->state = APP_MENU;
     }
 
-    ui_sdl_render_game_mode_select(ctx->ui, ctx->keybindings, *ctx->game_mode_selected);
+    ui_sdl_render_game_mode_select(ctx->ui, ctx->settings, *ctx->game_mode_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -284,7 +284,7 @@ static void handle_game_mode_select_state(AppContext *ctx)
 static void handle_speed_select_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_speed_select(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_speed_select(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -332,7 +332,7 @@ static void handle_speed_select_state(AppContext *ctx)
         *ctx->state = APP_GAME_MODE_SELECT;
     }
 
-    ui_sdl_render_speed_select(ctx->ui, ctx->keybindings, *ctx->speed_selected);
+    ui_sdl_render_speed_select(ctx->ui, ctx->settings, *ctx->speed_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -343,7 +343,7 @@ static void handle_speed_select_state(AppContext *ctx)
 static void handle_options_menu_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_options_menu(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_options_menu(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -380,7 +380,7 @@ static void handle_options_menu_state(AppContext *ctx)
         *ctx->state = APP_MENU;
     }
 
-    ui_sdl_render_options_menu(ctx->ui, ctx->keybindings, *ctx->options_menu_selected);
+    ui_sdl_render_options_menu(ctx->ui, ctx->settings, *ctx->options_menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -391,7 +391,7 @@ static void handle_options_menu_state(AppContext *ctx)
 static void handle_keybinds_player_select_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_keybind_player_select(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_keybind_player_select(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -424,7 +424,7 @@ static void handle_keybinds_player_select_state(AppContext *ctx)
         *ctx->state = APP_OPTIONS_MENU;
     }
 
-    ui_sdl_render_keybind_player_select(ctx->ui, ctx->keybindings, *ctx->keybind_player_selected);
+    ui_sdl_render_keybind_player_select(ctx->ui, ctx->settings, *ctx->keybind_player_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -450,7 +450,7 @@ static void handle_keybinds_binding_state(AppContext *ctx)
     {
         // User pressed ESC, don't save changes
         // Reload keybindings from file to discard changes
-        keybindings_load(ctx->keybindings);
+        settings_load(ctx->settings);
         *ctx->state = APP_KEYBINDS_PLAYER_SELECT;
         return;
     }
@@ -458,26 +458,26 @@ static void handle_keybinds_binding_state(AppContext *ctx)
     if (pressed_key != 0)
     {
         // Valid key pressed
-        KeybindAction action = (KeybindAction)*ctx->keybind_current_action;
+        SettingAction action = (SettingAction)*ctx->keybind_current_action;
 
         // Set binding with auto-swap
-        keybindings_set_with_swap(ctx->keybindings, *ctx->keybind_current_player, action, pressed_key);
+        settings_set_key_with_swap(ctx->settings, *ctx->keybind_current_player, action, pressed_key);
 
         // Move to next action
         (*ctx->keybind_current_action)++;
 
-        if (*ctx->keybind_current_action >= KB_ACTION_COUNT)
+        if (*ctx->keybind_current_action >= SETTING_ACTION_COUNT)
         {
             // All actions bound, save and return
-            keybindings_save(ctx->keybindings);
+            settings_save(ctx->settings);
             *ctx->state = APP_KEYBINDS_PLAYER_SELECT;
             return;
         }
     }
 
     // Render current binding prompt
-    KeybindAction current = (KeybindAction)*ctx->keybind_current_action;
-    ui_sdl_render_keybind_prompt(ctx->ui, ctx->keybindings, *ctx->keybind_current_player, current);
+    SettingAction current = (SettingAction)*ctx->keybind_current_action;
+    ui_sdl_render_keybind_prompt(ctx->ui, ctx->settings, *ctx->keybind_current_player, current);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -488,7 +488,7 @@ static void handle_keybinds_binding_state(AppContext *ctx)
 static void handle_sound_settings_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_sound_settings(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_sound_settings(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -548,7 +548,7 @@ static void handle_sound_settings_state(AppContext *ctx)
         }
     }
 
-    ui_sdl_render_sound_settings(ctx->ui, ctx->keybindings, ctx->audio, *ctx->sound_selected);
+    ui_sdl_render_sound_settings(ctx->ui, ctx->settings, ctx->audio, *ctx->sound_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -559,7 +559,7 @@ static void handle_sound_settings_state(AppContext *ctx)
 static void handle_multiplayer_menu_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_multiplayer_menu(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_multiplayer_menu(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -597,7 +597,7 @@ static void handle_multiplayer_menu_state(AppContext *ctx)
         *ctx->state = APP_MENU;
     }
 
-    ui_sdl_render_multiplayer_menu(ctx->ui, ctx->keybindings, *ctx->multiplayer_menu_selected);
+    ui_sdl_render_multiplayer_menu(ctx->ui, ctx->settings, *ctx->multiplayer_menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -607,7 +607,7 @@ static void handle_multiplayer_menu_state(AppContext *ctx)
 static void handle_multiplayer_speed_select_state(AppContext *ctx)
 {
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_speed_select(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_speed_select(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -649,7 +649,7 @@ static void handle_multiplayer_speed_select_state(AppContext *ctx)
         *ctx->state = APP_MULTIPLAYER_MENU;
     }
 
-    ui_sdl_render_speed_select(ctx->ui, ctx->keybindings, *ctx->speed_selected);
+    ui_sdl_render_speed_select(ctx->ui, ctx->settings, *ctx->speed_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -662,7 +662,7 @@ static void handle_multiplayer_lobby_state(AppContext *ctx)
     int players_pressed[MAX_PLAYERS] = {0, 0, 0, 0};
     int start_pressed = 0;
 
-    int running = ui_sdl_poll_multiplayer_lobby(ctx->ui, ctx->keybindings, &quit, players_pressed, &start_pressed);
+    int running = ui_sdl_poll_multiplayer_lobby(ctx->ui, ctx->settings, &quit, players_pressed, &start_pressed);
 
     if (!running)
     {
@@ -701,7 +701,7 @@ static void handle_multiplayer_lobby_state(AppContext *ctx)
         *ctx->state = APP_MULTIPLAYER_COUNTDOWN;
     }
 
-    ui_sdl_render_multiplayer_lobby(ctx->ui, ctx->keybindings, ctx->mp_game);
+    ui_sdl_render_multiplayer_lobby(ctx->ui, ctx->settings, ctx->mp_game);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -745,7 +745,7 @@ static void handle_multiplayer_game_state(AppContext *ctx)
     SDL_Delay(GAME_FRAME_DELAY_MS);
 
     // Poll input from all players
-    int running = ui_sdl_poll_multiplayer_game(ctx->ui, ctx->keybindings, ctx->mp_game);
+    int running = ui_sdl_poll_multiplayer_game(ctx->ui, ctx->settings, ctx->mp_game);
     if (!running)
     {
         *ctx->state = APP_QUIT;
@@ -860,9 +860,8 @@ static void handle_multiplayer_online_state(AppContext *ctx)
  */
 static void handle_game_over_state(AppContext *ctx)
 {
-    // Calculate time survived
-    unsigned int now = (unsigned int)SDL_GetTicks();
-    int time_seconds = (int)((now - ctx->game->start_time) / 1000);
+    // Calculate time survived (frozen at death)
+    int time_seconds = (int)((ctx->game->death_time - ctx->game->start_time) / 1000);
 
     // Render game over screen
     ui_sdl_render_game_over(ctx->ui, ctx->game->score, ctx->game->fruits_eaten, time_seconds, *ctx->game_over_selected);
@@ -870,7 +869,7 @@ static void handle_game_over_state(AppContext *ctx)
 
     // Poll for input
     int quit = 0;
-    UiMenuAction action = ui_sdl_poll_game_over(ctx->ui, ctx->keybindings, &quit);
+    UiMenuAction action = ui_sdl_poll_game_over(ctx->ui, ctx->settings, &quit);
     if (quit)
     {
         *ctx->state = APP_QUIT;
@@ -901,27 +900,7 @@ static void handle_game_over_state(AppContext *ctx)
         }
         else
         {
-            // Quit - check if score qualifies for top 5
-            int qualifies = scoreboard_qualifies_for_top_n(ctx->sb, ctx->game->score, 5);
-
-            if (qualifies)
-            {
-                char namebuf[SB_MAX_NAME_LEN];
-                if (ui_sdl_get_name(ctx->ui, namebuf, sizeof(namebuf)))
-                {
-                    if (namebuf[0] != '\0')
-                    {
-                        strncpy(ctx->player_name, namebuf, SB_MAX_NAME_LEN - 1);
-                        ctx->player_name[SB_MAX_NAME_LEN - 1] = '\0';
-                    }
-                }
-
-                scoreboard_add(ctx->sb, ctx->player_name, ctx->game->score);
-                scoreboard_sort(ctx->sb);
-                scoreboard_trim_to_top_n(ctx->sb, 5);
-                scoreboard_save(ctx->sb);
-            }
-
+            // Quit - return to main menu
             *ctx->state = APP_MENU;
         }
     }
@@ -970,7 +949,7 @@ static void handle_singleplayer_state(AppContext *ctx)
         }
 
         int quit_app = 0;
-        UiPauseAction pause_action = ui_sdl_poll_pause(ctx->ui, ctx->keybindings, &quit_app);
+        UiPauseAction pause_action = ui_sdl_poll_pause(ctx->ui, ctx->settings, &quit_app);
         if (quit_app)
         {
             *ctx->state = APP_QUIT;
@@ -1034,7 +1013,7 @@ static void handle_singleplayer_state(AppContext *ctx)
     Direction raw_dir = DIR_RIGHT;
 
     int pause = 0;
-    int running = ui_sdl_poll(ctx->ui, ctx->keybindings, &out_has_dir, &raw_dir, &pause);
+    int running = ui_sdl_poll(ctx->ui, ctx->settings, &out_has_dir, &raw_dir, &pause);
     if (!running)
     {
         *ctx->state = APP_QUIT;
@@ -1103,6 +1082,19 @@ static void handle_singleplayer_state(AppContext *ctx)
     // Transition to game over screen on GAME_OVER
     if (ctx->game->state == GAME_OVER && *ctx->pending_save_this_round)
     {
+        // Freeze time at death
+        ctx->game->death_time = (unsigned int)SDL_GetTicks();
+
+        // Check if score qualifies for top 5 and save
+        int qualifies = scoreboard_qualifies_for_top_n(ctx->sb, ctx->game->score, 5);
+        if (qualifies)
+        {
+            scoreboard_add(ctx->sb, ctx->player_name, ctx->game->score);
+            scoreboard_sort(ctx->sb);
+            scoreboard_trim_to_top_n(ctx->sb, 5);
+            scoreboard_save(ctx->sb);
+        }
+
         *ctx->pending_save_this_round = 0;
         *ctx->game_over_selected = 0; // Default to "Try again"
         *ctx->state = APP_GAME_OVER;
@@ -1192,14 +1184,29 @@ int main(int argc, char *argv[])
     scoreboard_load(&sb);
     scoreboard_sort(&sb);
 
-    // Initialize keybindings
-    Keybindings keybindings;
-    keybindings_init(&keybindings, "data/keybindings.ini");
-    if (!keybindings_load(&keybindings))
+    // Initialize settings
+    Settings settings;
+    settings_init(&settings, "data/settings.ini");
+    if (!settings_load(&settings))
     {
         // File doesn't exist or error, use defaults
-        keybindings_set_defaults(&keybindings);
-        keybindings_save(&keybindings); // Create default file
+        settings_set_defaults(&settings);
+        settings_save(&settings); // Create default file
+    }
+
+    // Prompt for profile name if not set
+    if (!settings_has_profile(&settings))
+    {
+        char namebuf[SETTINGS_MAX_PROFILE_NAME];
+        if (ui_sdl_get_name(ui, namebuf, sizeof(namebuf)))
+        {
+            if (namebuf[0] != '\0')
+            {
+                strncpy(settings.profile_name, namebuf, SETTINGS_MAX_PROFILE_NAME - 1);
+                settings.profile_name[SETTINGS_MAX_PROFILE_NAME - 1] = '\0';
+                settings_save(&settings);
+            }
+        }
     }
 
     AppState state = APP_MENU;
@@ -1222,7 +1229,10 @@ int main(int argc, char *argv[])
     InputBuffer input;
     input_buffer_init(&input);
 
-    char player_name[SB_MAX_NAME_LEN] = "Player";
+    // Use profile name from settings
+    char player_name[SB_MAX_NAME_LEN];
+    strncpy(player_name, settings.profile_name, SB_MAX_NAME_LEN - 1);
+    player_name[SB_MAX_NAME_LEN - 1] = '\0';
     int paused = 0;
     int pause_selected = 0;   // 0..2
     int pause_in_options = 0; // 0=pause menu, 1=options screen
@@ -1236,7 +1246,7 @@ int main(int argc, char *argv[])
     AppContext ctx = {
         .ui = ui,
         .audio = audio,
-        .keybindings = &keybindings,
+        .settings = &settings,
         .sb = &sb,
         .state = &state,
         .menu_selected = &menu_selected,

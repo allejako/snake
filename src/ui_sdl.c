@@ -120,7 +120,7 @@ void ui_sdl_destroy(UiSdl *ui)
     SDL_Quit();
 }
 
-int ui_sdl_poll(UiSdl *ui, const Keybindings *kb, int *out_has_dir, Direction *out_dir, int *out_pause)
+int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction *out_dir, int *out_pause)
 {
     *out_has_dir = 0;
     *out_pause = 0;
@@ -143,25 +143,25 @@ int ui_sdl_poll(UiSdl *ui, const Keybindings *kb, int *out_has_dir, Direction *o
             }
 
             // Check dynamic directional bindings for Player 1
-            int action = keybindings_find_action(kb, 0, key);
+            int action = settings_find_action(settings, 0, key);
             if (action >= 0)
             {
                 *out_has_dir = 1;
                 switch (action)
                 {
-                case KB_ACTION_UP:
+                case SETTING_ACTION_UP:
                     *out_dir = DIR_UP;
                     break;
-                case KB_ACTION_DOWN:
+                case SETTING_ACTION_DOWN:
                     *out_dir = DIR_DOWN;
                     break;
-                case KB_ACTION_LEFT:
+                case SETTING_ACTION_LEFT:
                     *out_dir = DIR_LEFT;
                     break;
-                case KB_ACTION_RIGHT:
+                case SETTING_ACTION_RIGHT:
                     *out_dir = DIR_RIGHT;
                     break;
-                case KB_ACTION_USE:
+                case SETTING_ACTION_USE:
                     // Future functionality
                     break;
                 }
@@ -434,7 +434,7 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
     }
 }
 
-UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -462,10 +462,10 @@ UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
@@ -474,7 +474,7 @@ UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
+void ui_sdl_render_menu(UiSdl *ui, const Settings *settings, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -509,8 +509,8 @@ void ui_sdl_render_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
         }
 
         // Build instruction string with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Quit", up, down);
         text_draw_center(ui->ren, &ui->text, center_x, ui->h - 40, instructions);
@@ -551,7 +551,7 @@ void ui_sdl_render_multiplayer_placeholder(UiSdl *ui)
     SDL_RenderPresent(ui->ren);
 }
 
-UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -579,10 +579,10 @@ UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Keybindings *kb, int *out_quit)
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_PAUSE_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_PAUSE_DOWN;
         }
     }
@@ -676,7 +676,7 @@ void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_na
 
 // ==== New Keybindings UI Functions ====
 
-void ui_sdl_render_options_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
+void ui_sdl_render_options_menu(UiSdl *ui, const Settings *settings, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -706,8 +706,8 @@ void ui_sdl_render_options_menu(UiSdl *ui, const Keybindings *kb, int selected_i
         }
 
         // Build instruction string with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -716,7 +716,7 @@ void ui_sdl_render_options_menu(UiSdl *ui, const Keybindings *kb, int selected_i
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -743,10 +743,10 @@ UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Keybindings *kb, int *out
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
@@ -755,7 +755,7 @@ UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Keybindings *kb, int *out
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_keybind_player_select(UiSdl *ui, const Keybindings *kb, int selected_index)
+void ui_sdl_render_keybind_player_select(UiSdl *ui, const Settings *settings, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -785,8 +785,8 @@ void ui_sdl_render_keybind_player_select(UiSdl *ui, const Keybindings *kb, int s
         }
 
         // Build instruction string with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -795,7 +795,7 @@ void ui_sdl_render_keybind_player_select(UiSdl *ui, const Keybindings *kb, int s
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -822,10 +822,10 @@ UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Keybindings *kb,
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
@@ -834,7 +834,7 @@ UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Keybindings *kb,
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_keybind_prompt(UiSdl *ui, const Keybindings *kb, int player_index, KeybindAction action)
+void ui_sdl_render_keybind_prompt(UiSdl *ui, const Settings *settings, int player_index, SettingAction action)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -860,14 +860,14 @@ void ui_sdl_render_keybind_prompt(UiSdl *ui, const Keybindings *kb, int player_i
 
     // Main prompt
     char prompt[64];
-    snprintf(prompt, sizeof(prompt), "Bind %s", keybindings_action_name(action));
+    snprintf(prompt, sizeof(prompt), "Bind %s", settings_action_name(action));
     text_draw_center(ui->ren, &ui->text, cx, cy - 40, prompt);
 
     text_draw_center(ui->ren, &ui->text, cx, cy, "Press any key...");
 
     // Current binding
-    SDL_Keycode current_binding = keybindings_get(kb, player_index, action);
-    const char *current_key_name = keybindings_key_name(current_binding);
+    SDL_Keycode current_binding = settings_get_key(settings, player_index, action);
+    const char *current_key_name = settings_key_name(current_binding);
     char current[64];
     snprintf(current, sizeof(current), "Current: %s", current_key_name);
     text_draw_center(ui->ren, &ui->text, cx, cy + 40, current);
@@ -881,11 +881,11 @@ void ui_sdl_render_keybind_prompt(UiSdl *ui, const Keybindings *kb, int player_i
 
         for (int i = 0; i < action; i++)
         {
-            SDL_Keycode bound = keybindings_get(kb, player_index, (KeybindAction)i);
+            SDL_Keycode bound = settings_get_key(settings, player_index, (SettingAction)i);
             char entry[64];
             snprintf(entry, sizeof(entry), "%s: %s",
-                     keybindings_action_name((KeybindAction)i),
-                     keybindings_key_name(bound));
+                     settings_action_name((SettingAction)i),
+                     settings_key_name(bound));
             text_draw_center(ui->ren, &ui->text, cx, y_offset, entry);
             y_offset += 24;
         }
@@ -942,7 +942,7 @@ SDL_Keycode ui_sdl_poll_keybind_input(UiSdl *ui, int *out_cancel, int *out_quit)
 
 #include "audio_sdl.h"
 
-void ui_sdl_render_sound_settings(UiSdl *ui, const Keybindings *kb, const AudioSdl *audio, int selected_index)
+void ui_sdl_render_sound_settings(UiSdl *ui, const Settings *settings, const AudioSdl *audio, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1008,10 +1008,10 @@ void ui_sdl_render_sound_settings(UiSdl *ui, const Keybindings *kb, const AudioS
         }
 
         // Build instruction strings with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
-        const char *left = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_LEFT));
-        const char *right = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_RIGHT));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
+        const char *left = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_LEFT));
+        const char *right = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_RIGHT));
 
         char instructions1[128];
         char instructions2[64];
@@ -1025,7 +1025,7 @@ void ui_sdl_render_sound_settings(UiSdl *ui, const Keybindings *kb, const AudioS
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -1052,14 +1052,14 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *o
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
-            if (action == KB_ACTION_LEFT)
+            if (action == SETTING_ACTION_LEFT)
                 return UI_MENU_LEFT;
-            if (action == KB_ACTION_RIGHT)
+            if (action == SETTING_ACTION_RIGHT)
                 return UI_MENU_RIGHT;
         }
     }
@@ -1068,7 +1068,7 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *o
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_game_mode_select(UiSdl *ui, const Keybindings *kb, int selected_index)
+void ui_sdl_render_game_mode_select(UiSdl *ui, const Settings *settings, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1098,8 +1098,8 @@ void ui_sdl_render_game_mode_select(UiSdl *ui, const Keybindings *kb, int select
         }
 
         // Build instruction string with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -1108,7 +1108,7 @@ void ui_sdl_render_game_mode_select(UiSdl *ui, const Keybindings *kb, int select
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -1135,10 +1135,10 @@ UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int 
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
@@ -1147,7 +1147,7 @@ UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int 
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_speed_select(UiSdl *ui, const Keybindings *kb, int selected_index)
+void ui_sdl_render_speed_select(UiSdl *ui, const Settings *settings, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1177,8 +1177,8 @@ void ui_sdl_render_speed_select(UiSdl *ui, const Keybindings *kb, int selected_i
         }
 
         // Build instruction string with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -1187,7 +1187,7 @@ void ui_sdl_render_speed_select(UiSdl *ui, const Keybindings *kb, int selected_i
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -1214,10 +1214,10 @@ UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
@@ -1228,7 +1228,7 @@ UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out
 
 // ==== Multiplayer Menu Functions ====
 
-void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
+void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Settings *settings, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1258,8 +1258,8 @@ void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int select
         }
 
         // Build instruction string with actual keybindings
-        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
-        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, 0, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -1268,7 +1268,7 @@ void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int select
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_multiplayer_menu(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     *out_quit = 0;
 
@@ -1295,10 +1295,10 @@ UiMenuAction ui_sdl_poll_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int 
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
@@ -1343,7 +1343,7 @@ void ui_sdl_render_multiplayer_online_placeholder(UiSdl *ui)
 
 #include "multiplayer_game.h"
 
-void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, const MultiplayerGame_s *mg)
+void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Settings *settings, const MultiplayerGame_s *mg)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1374,7 +1374,7 @@ void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, const Mul
         }
         else
         {
-            const char *use_key = keybindings_key_name(keybindings_get(kb, i, KB_ACTION_USE));
+            const char *use_key = settings_key_name(settings_get_key(settings, i, SETTING_ACTION_USE));
             snprintf(status, sizeof(status), "%s: Press %s", player_labels[i], use_key);
         }
         text_draw_center(ui->ren, &ui->text, quadrant_x[i], quadrant_y[i], status);
@@ -1396,7 +1396,7 @@ void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, const Mul
     SDL_RenderPresent(ui->ren);
 }
 
-int ui_sdl_poll_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, int *out_quit, int *players_pressed, int *start_pressed)
+int ui_sdl_poll_multiplayer_lobby(UiSdl *ui, const Settings *settings, int *out_quit, int *players_pressed, int *start_pressed)
 {
     *out_quit = 0;
     *start_pressed = 0;
@@ -1432,7 +1432,7 @@ int ui_sdl_poll_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, int *out_qui
             // Check USE key for each player
             for (int i = 0; i < 4; i++)
             {
-                if (key == keybindings_get(kb, i, KB_ACTION_USE))
+                if (key == settings_get_key(settings, i, SETTING_ACTION_USE))
                 {
                     players_pressed[i] = 1;
                 }
@@ -1562,7 +1562,7 @@ void ui_sdl_render_multiplayer_game(UiSdl *ui, const MultiplayerGame_s *mg)
     SDL_RenderPresent(ui->ren);
 }
 
-int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Keybindings *kb, MultiplayerGame_s *mg)
+int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Settings *settings, MultiplayerGame_s *mg)
 {
     SDL_Event e;
     while (SDL_PollEvent(&e))
@@ -1580,16 +1580,16 @@ int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Keybindings *kb, MultiplayerGa
                 if (!mg->players[i].alive)
                     continue;
 
-                int action = keybindings_find_action(kb, i, key);
-                if (action >= 0 && action <= KB_ACTION_RIGHT)
+                int action = settings_find_action(settings, i, key);
+                if (action >= 0 && action <= SETTING_ACTION_RIGHT)
                 {
                     Direction dir = DIR_RIGHT;
                     switch (action)
                     {
-                    case KB_ACTION_UP:    dir = DIR_UP; break;
-                    case KB_ACTION_DOWN:  dir = DIR_DOWN; break;
-                    case KB_ACTION_LEFT:  dir = DIR_LEFT; break;
-                    case KB_ACTION_RIGHT: dir = DIR_RIGHT; break;
+                    case SETTING_ACTION_UP:    dir = DIR_UP; break;
+                    case SETTING_ACTION_DOWN:  dir = DIR_DOWN; break;
+                    case SETTING_ACTION_LEFT:  dir = DIR_LEFT; break;
+                    case SETTING_ACTION_RIGHT: dir = DIR_RIGHT; break;
                     default: break;
                     }
 
@@ -1653,7 +1653,7 @@ void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds,
     SDL_RenderPresent(ui->ren);
 }
 
-UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Keybindings *kb, int *out_quit)
+UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out_quit)
 {
     SDL_Event e;
     while (SDL_PollEvent(&e))
@@ -1674,10 +1674,10 @@ UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Keybindings *kb, int *out_qu
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = keybindings_find_action(kb, 0, key);
-            if (action == KB_ACTION_UP)
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
-            if (action == KB_ACTION_DOWN)
+            if (action == SETTING_ACTION_DOWN)
                 return UI_MENU_DOWN;
         }
     }
