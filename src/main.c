@@ -510,12 +510,16 @@ static void handle_sound_settings_state(AppContext *ctx)
             if (*ctx->sound_selected == SOUND_MENU_MUSIC_VOLUME)
             {
                 int current = audio_sdl_get_music_volume(ctx->audio);
-                audio_sdl_set_music_volume(ctx->audio, current - 5); // 5%
+                int new_volume = current - 5;
+                audio_sdl_set_music_volume(ctx->audio, new_volume);
+                ctx->settings->music_volume = audio_sdl_get_music_volume(ctx->audio);
             }
             else if (*ctx->sound_selected == SOUND_MENU_EFFECTS_VOLUME)
             {
                 int current = audio_sdl_get_effects_volume(ctx->audio);
-                audio_sdl_set_effects_volume(ctx->audio, current - 5); // 5%
+                int new_volume = current - 5;
+                audio_sdl_set_effects_volume(ctx->audio, new_volume);
+                ctx->settings->effects_volume = audio_sdl_get_effects_volume(ctx->audio);
             }
         }
     }
@@ -526,12 +530,16 @@ static void handle_sound_settings_state(AppContext *ctx)
             if (*ctx->sound_selected == SOUND_MENU_MUSIC_VOLUME)
             {
                 int current = audio_sdl_get_music_volume(ctx->audio);
-                audio_sdl_set_music_volume(ctx->audio, current + 5); // 5%
+                int new_volume = current + 5;
+                audio_sdl_set_music_volume(ctx->audio, new_volume);
+                ctx->settings->music_volume = audio_sdl_get_music_volume(ctx->audio);
             }
             else if (*ctx->sound_selected == SOUND_MENU_EFFECTS_VOLUME)
             {
                 int current = audio_sdl_get_effects_volume(ctx->audio);
-                audio_sdl_set_effects_volume(ctx->audio, current + 5); // 5%
+                int new_volume = current + 5;
+                audio_sdl_set_effects_volume(ctx->audio, new_volume);
+                ctx->settings->effects_volume = audio_sdl_get_effects_volume(ctx->audio);
             }
         }
     }
@@ -540,10 +548,7 @@ static void handle_sound_settings_state(AppContext *ctx)
         if (*ctx->sound_selected == SOUND_MENU_BACK || action == UI_MENU_BACK)
         {
             // Save settings before exiting
-            if (ctx->audio)
-            {
-                audio_sdl_save_config(ctx->audio, "data/audio.ini");
-            }
+            settings_save(ctx->settings);
             *ctx->state = APP_OPTIONS_MENU;
         }
     }
@@ -1137,6 +1142,16 @@ int main(int argc, char *argv[])
     if (!ui)
         return 1;
 
+    // Initialize settings first
+    Settings settings;
+    settings_init(&settings, "data/settings.ini");
+    if (!settings_load(&settings))
+    {
+        // File doesn't exist or error, use defaults
+        settings_set_defaults(&settings);
+        settings_save(&settings); // Create default file
+    }
+
     // Initialize audio system (only if enabled)
     AudioSdl *audio = NULL;
     if (enable_audio)
@@ -1148,11 +1163,9 @@ int main(int argc, char *argv[])
         }
         else
         {
-            // Load volume settings
-            if (!audio_sdl_load_config(audio, "data/audio.ini"))
-            {
-                // Config doesn't exist, using defaults
-            }
+            // Apply volume settings from unified settings
+            audio_sdl_set_music_volume(audio, settings.music_volume);
+            audio_sdl_set_effects_volume(audio, settings.effects_volume);
 
             if (audio_sdl_load_music(audio, "assets/music/background.wav"))
             {
@@ -1183,16 +1196,6 @@ int main(int argc, char *argv[])
     scoreboard_init(&sb, "data/scoreboard.csv");
     scoreboard_load(&sb);
     scoreboard_sort(&sb);
-
-    // Initialize settings
-    Settings settings;
-    settings_init(&settings, "data/settings.ini");
-    if (!settings_load(&settings))
-    {
-        // File doesn't exist or error, use defaults
-        settings_set_defaults(&settings);
-        settings_save(&settings); // Create default file
-    }
 
     // Prompt for profile name if not set
     if (!settings_has_profile(&settings))
@@ -1332,9 +1335,12 @@ int main(int argc, char *argv[])
     }
 
     scoreboard_free(&sb);
+
+    // Save settings before cleanup
+    settings_save(&settings);
+
     if (audio)
     {
-        audio_sdl_save_config(audio, "data/audio.ini");
         audio_sdl_destroy(audio);
     }
     ui_sdl_destroy(ui);
