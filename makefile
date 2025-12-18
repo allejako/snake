@@ -17,7 +17,7 @@ OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC))
 
 BIN := $(BIN_DIR)/snake_sdl.exe
 
-EXTRA_LIBS := -ljansson
+EXTRA_LIBS := -ljansson -lm
 
 .PHONY: all clean run
 

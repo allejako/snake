@@ -4,6 +4,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "game.h"
 #include "multiplayer_game.h"
 #include "common.h"
@@ -23,14 +24,21 @@
 #define MENU_FRAME_DELAY_MS 16 // ~60 FPS for menus
 #define GAME_FRAME_DELAY_MS 1 // Minimal delay for gameplay
 
-// Modern mode speed increase
-#define SPEED_INCREASE_POINTS 60  // Increase speed every N points
-#define SPEED_INCREASE_MS 5      // Decrease tick time by N ms
-#define MIN_TICK_MS 40            // Minimum tick time (speed cap)
+// Speed curve parameters
+#define SPEED_START_MS 95.0f      // Starting tick time
+#define SPEED_FLOOR_MS 40.0f      // Minimum tick time (speed cap)
+#define SPEED_CURVE_K 0.12f       // Exponential decay rate (tuned for food count)
 
 // Combo system
 #define BASE_COMBO_WINDOW_TICKS 20     // Base window in ticks for tier 1
 #define COMBO_WINDOW_INCREASE_PER_TIER 5  // Additional ticks per tier level
+
+// Calculate tick time based on number of foods eaten (smooth exponential curve)
+static int tick_ms_for_foods(int foods)
+{
+    float t = SPEED_FLOOR_MS + (SPEED_START_MS - SPEED_FLOOR_MS) * expf(-SPEED_CURVE_K * (float)foods);
+    return (int)(t + 0.5f);
+}
 
 typedef enum
 {
@@ -114,7 +122,6 @@ typedef struct
     int *keybind_current_action;  // Currently configuring action (0-4)
     int *sound_selected;          // Sound settings cursor position
     unsigned int *current_tick_ms;    // Runtime-variable tick speed
-    int *modern_mode_score_at_last_speed_update; // Track Modern mode speed changes
     Game *game;                   // Game state
     MultiplayerGame_s *mp_game;   // Multiplayer game state
     InputBuffer *input;           // Input buffer for gameplay
@@ -158,7 +165,6 @@ static void handle_menu_state(AppContext *ctx)
         {
         case MENU_SINGLEPLAYER:
             *ctx->current_tick_ms = TICK_MS;
-            *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
             ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Initialize combo window (tier 1)
@@ -700,7 +706,6 @@ static void handle_game_over_state(AppContext *ctx)
         {
             // Try again - restart game
             *ctx->current_tick_ms = TICK_MS; // Reset to normal speed
-            *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
             ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Reset combo window (tier 1)
@@ -895,17 +900,10 @@ static void handle_singleplayer_state(AppContext *ctx)
             }
         }
 
-        // Modern mode: increase speed dynamically
-        int score_delta = ctx->game->score - *ctx->modern_mode_score_at_last_speed_update;
-        int speed_increases = score_delta / SPEED_INCREASE_POINTS;
-
-        if (speed_increases > 0)
+        // Update speed based on foods eaten (smooth exponential curve)
+        if (ctx->game->food_eaten_this_frame)
         {
-            int new_tick = *ctx->current_tick_ms - (speed_increases * SPEED_INCREASE_MS);
-            if (new_tick < MIN_TICK_MS)
-                new_tick = MIN_TICK_MS;
-            *ctx->current_tick_ms = new_tick;
-            *ctx->modern_mode_score_at_last_speed_update = ctx->game->score;
+            *ctx->current_tick_ms = tick_ms_for_foods(ctx->game->fruits_eaten);
         }
     }
 
@@ -1082,7 +1080,6 @@ int main(int argc, char *argv[])
     int keybind_current_action = 0;
     int sound_selected = 0;
     unsigned int current_tick_ms = TICK_MS;
-    int modern_mode_score_at_last_speed_update = 0;
 
     Game game;
     MultiplayerGame_s mp_game;
@@ -1117,7 +1114,6 @@ int main(int argc, char *argv[])
         .keybind_current_action = &keybind_current_action,
         .sound_selected = &sound_selected,
         .current_tick_ms = &current_tick_ms,
-        .modern_mode_score_at_last_speed_update = &modern_mode_score_at_last_speed_update,
         .game = &game,
         .mp_game = &mp_game,
         .input = &input,
