@@ -379,9 +379,11 @@ int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size)
 void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
 {
     int center_x = ui->w / 2;
-    int segment_y = ui->h / 40; 
+    int segment_y = ui->h / 40;
     int offset_y = 3 * segment_y;
     int running = 1;
+    ScoreGameMode current_mode = SCORE_MODE_CLASSIC;
+
     while (running)
     {
         SDL_Event e;
@@ -390,7 +392,23 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
             if (e.type == SDL_QUIT)
                 return;
             if (e.type == SDL_KEYDOWN)
-                running = 0;
+            {
+                SDL_Keycode key = e.key.keysym.sym;
+                // ESC or Enter to exit
+                if (key == SDLK_ESCAPE || key == SDLK_RETURN || key == SDLK_KP_ENTER)
+                {
+                    running = 0;
+                }
+                // Left/Right to switch modes
+                else if (key == SDLK_LEFT)
+                {
+                    current_mode = SCORE_MODE_CLASSIC;
+                }
+                else if (key == SDLK_RIGHT)
+                {
+                    current_mode = SCORE_MODE_MODERN;
+                }
+            }
         }
 
         SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
@@ -398,14 +416,33 @@ void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb)
 
         if (ui->text_ok)
         {
-            text_draw_center(ui->ren, &ui->text, center_x, segment_y, "SCOREBOARD (press any key to return)");
+            // Title with mode indicator
+            char title[128];
+            const char *mode_name = (current_mode == SCORE_MODE_CLASSIC) ? "Classic" : "Modern";
+            snprintf(title, sizeof(title), "SCOREBOARD - %s Mode", mode_name);
+            text_draw_center(ui->ren, &ui->text, center_x, segment_y, title);
 
-            int max = sb->count < 15 ? sb->count : 15;
-            for (int i = 0; i < max; ++i)
+            // Instructions
+            text_draw_center(ui->ren, &ui->text, center_x, segment_y + 30, "LEFT/RIGHT = Switch Mode | ENTER = Back");
+
+            // Filter and display entries for current mode
+            int display_count = 0;
+            for (int i = 0; i < sb->count && display_count < 10; ++i)
             {
-                char row[128];
-                snprintf(row, sizeof(row), "%2d) %-20s  %d", i + 1, sb->entries[i].name, sb->entries[i].score);
-                text_draw_center(ui->ren, &ui->text, center_x, offset_y + i * segment_y, row);
+                if (sb->entries[i].game_mode == current_mode)
+                {
+                    char row[128];
+                    snprintf(row, sizeof(row), "%2d) %-20s  %d", display_count + 1,
+                             sb->entries[i].name, sb->entries[i].score);
+                    text_draw_center(ui->ren, &ui->text, center_x, offset_y + display_count * segment_y, row);
+                    display_count++;
+                }
+            }
+
+            // Show message if no entries
+            if (display_count == 0)
+            {
+                text_draw_center(ui->ren, &ui->text, center_x, offset_y, "No scores yet");
             }
         }
 
@@ -454,7 +491,7 @@ UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_menu(UiSdl *ui, int selected_index)
+void ui_sdl_render_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -488,8 +525,12 @@ void ui_sdl_render_menu(UiSdl *ui, int selected_index)
             text_draw_center(ui->ren, &ui->text, center_x, y + i * 32, line);
         }
 
-        text_draw_center(ui->ren, &ui->text, center_x, ui->h - 40,
-                         "UP/DOWN + ENTER | ESC = Quit");
+        // Build instruction string with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        char instructions[128];
+        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Quit", up, down);
+        text_draw_center(ui->ren, &ui->text, center_x, ui->h - 40, instructions);
     }
 
     SDL_RenderPresent(ui->ren);
@@ -652,7 +693,7 @@ void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_na
 
 // ==== New Keybindings UI Functions ====
 
-void ui_sdl_render_options_menu(UiSdl *ui, int selected_index)
+void ui_sdl_render_options_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -681,7 +722,12 @@ void ui_sdl_render_options_menu(UiSdl *ui, int selected_index)
             text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
         }
 
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "UP/DOWN + ENTER | ESC = Back");
+        // Build instruction string with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        char instructions[128];
+        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
     }
 
     SDL_RenderPresent(ui->ren);
@@ -726,7 +772,7 @@ UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Keybindings *kb, int *out
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_keybind_player_select(UiSdl *ui, int selected_index)
+void ui_sdl_render_keybind_player_select(UiSdl *ui, const Keybindings *kb, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -755,7 +801,12 @@ void ui_sdl_render_keybind_player_select(UiSdl *ui, int selected_index)
             text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
         }
 
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "UP/DOWN + ENTER | ESC = Back");
+        // Build instruction string with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        char instructions[128];
+        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
     }
 
     SDL_RenderPresent(ui->ren);
@@ -908,7 +959,7 @@ SDL_Keycode ui_sdl_poll_keybind_input(UiSdl *ui, int *out_cancel, int *out_quit)
 
 #include "audio_sdl.h"
 
-void ui_sdl_render_sound_settings(UiSdl *ui, const AudioSdl *audio, int selected_index)
+void ui_sdl_render_sound_settings(UiSdl *ui, const Keybindings *kb, const AudioSdl *audio, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -973,8 +1024,19 @@ void ui_sdl_render_sound_settings(UiSdl *ui, const AudioSdl *audio, int selected
             text_draw_center(ui->ren, &ui->text, cx, y + i * 40, line);
         }
 
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 60, "UP/DOWN = Navigate | LEFT/RIGHT = Adjust");
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 30, "ENTER/ESC = Back");
+        // Build instruction strings with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        const char *left = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_LEFT));
+        const char *right = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_RIGHT));
+
+        char instructions1[128];
+        char instructions2[64];
+        snprintf(instructions1, sizeof(instructions1), "%s/%s = Navigate | %s/%s = Adjust", up, down, left, right);
+        snprintf(instructions2, sizeof(instructions2), "ENTER/ESC = Back");
+
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 60, instructions1);
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 30, instructions2);
     }
 
     SDL_RenderPresent(ui->ren);
@@ -1023,7 +1085,7 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *o
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_game_mode_select(UiSdl *ui, int selected_index)
+void ui_sdl_render_game_mode_select(UiSdl *ui, const Keybindings *kb, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1036,9 +1098,9 @@ void ui_sdl_render_game_mode_select(UiSdl *ui, int selected_index)
         text_draw_center(ui->ren, &ui->text, cx, y, "SELECT GAME MODE");
         y += 60;
 
-        const char *items[] = {"Classic", "Modern", "Versus"};
+        const char *items[] = {"Classic", "Modern", "Versus", "Back"};
 
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 4; ++i)
         {
             char line[128];
             if (i == selected_index)
@@ -1052,7 +1114,12 @@ void ui_sdl_render_game_mode_select(UiSdl *ui, int selected_index)
             text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
         }
 
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "UP/DOWN + ENTER | ESC = Back");
+        // Build instruction string with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        char instructions[128];
+        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
     }
 
     SDL_RenderPresent(ui->ren);
@@ -1097,7 +1164,7 @@ UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int 
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_speed_select(UiSdl *ui, int selected_index)
+void ui_sdl_render_speed_select(UiSdl *ui, const Keybindings *kb, int selected_index)
 {
     SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
     SDL_RenderClear(ui->ren);
@@ -1110,7 +1177,7 @@ void ui_sdl_render_speed_select(UiSdl *ui, int selected_index)
         text_draw_center(ui->ren, &ui->text, cx, y, "SELECT SPEED");
         y += 60;
 
-        const char *items[] = {"Slow (130ms)", "Normal (100ms)", "Fast (70ms)"};
+        const char *items[] = {"Slow", "Normal", "Fast"};
 
         for (int i = 0; i < 3; ++i)
         {
@@ -1126,8 +1193,12 @@ void ui_sdl_render_speed_select(UiSdl *ui, int selected_index)
             text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
         }
 
-        text_draw_center(ui->ren, &ui->text, cx, y + 120, "(Recommended: Normal)");
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "UP/DOWN + ENTER | ESC = Back");
+        // Build instruction string with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        char instructions[128];
+        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
     }
 
     SDL_RenderPresent(ui->ren);
@@ -1170,4 +1241,382 @@ UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out
 
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
     return UI_MENU_NONE;
+}
+
+// ==== Multiplayer Menu Functions ====
+
+void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (ui->text_ok)
+    {
+        int cx = ui->w / 2;
+        int y = ui->h / 2 - 80;
+
+        text_draw_center(ui->ren, &ui->text, cx, y, "MULTIPLAYER");
+        y += 60;
+
+        const char *items[] = {"Local", "Online", "Back"};
+
+        for (int i = 0; i < 3; ++i)
+        {
+            char line[128];
+            if (i == selected_index)
+            {
+                snprintf(line, sizeof(line), "> %s <", items[i]);
+            }
+            else
+            {
+                snprintf(line, sizeof(line), "  %s  ", items[i]);
+            }
+            text_draw_center(ui->ren, &ui->text, cx, y + i * 32, line);
+        }
+
+        // Build instruction string with actual keybindings
+        const char *up = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_UP));
+        const char *down = keybindings_key_name(keybindings_get(kb, 0, KB_ACTION_DOWN));
+        char instructions[128];
+        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, instructions);
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int *out_quit)
+{
+    *out_quit = 0;
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            // Fixed keys
+            if (key == SDLK_ESCAPE)
+            {
+                return UI_MENU_BACK;
+            }
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+            {
+                return UI_MENU_SELECT;
+            }
+
+            // Dynamic navigation using Player 1's bindings
+            int action = keybindings_find_action(kb, 0, key);
+            if (action == KB_ACTION_UP)
+                return UI_MENU_UP;
+            if (action == KB_ACTION_DOWN)
+                return UI_MENU_DOWN;
+        }
+    }
+
+    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return UI_MENU_NONE;
+}
+
+void ui_sdl_render_multiplayer_local_placeholder(UiSdl *ui)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (ui->text_ok)
+    {
+        int cx = ui->w / 2;
+        text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 - 20, "LOCAL MULTIPLAYER");
+        text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 + 20, "(not implemented yet)");
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "ESC = Back");
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+void ui_sdl_render_multiplayer_online_placeholder(UiSdl *ui)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (ui->text_ok)
+    {
+        int cx = ui->w / 2;
+        text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 - 20, "ONLINE MULTIPLAYER");
+        text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 + 20, "(not implemented yet)");
+        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "ESC = Back");
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+// ==== Local Multiplayer UI Functions ====
+
+#include "multiplayer_game.h"
+
+void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, const MultiplayerGame_s *mg)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (!ui->text_ok)
+    {
+        SDL_RenderPresent(ui->ren);
+        return;
+    }
+
+    int cx = ui->w / 2;
+    int cy = ui->h / 2;
+
+    // Title
+    text_draw_center(ui->ren, &ui->text, cx, 40, "LOCAL MULTIPLAYER LOBBY");
+
+    // Draw 4 player slots in quadrants
+    const char *player_labels[] = {"Player 1", "Player 2", "Player 3", "Player 4"};
+    int quadrant_x[] = {ui->w / 4, 3 * ui->w / 4, ui->w / 4, 3 * ui->w / 4};
+    int quadrant_y[] = {cy - 80, cy - 80, cy + 80, cy + 80};
+
+    for (int i = 0; i < 4; i++)
+    {
+        char status[128];
+        if (mg->players[i].joined)
+        {
+            snprintf(status, sizeof(status), "%s [JOINED]", player_labels[i]);
+        }
+        else
+        {
+            const char *use_key = keybindings_key_name(keybindings_get(kb, i, KB_ACTION_USE));
+            snprintf(status, sizeof(status), "%s: Press %s", player_labels[i], use_key);
+        }
+        text_draw_center(ui->ren, &ui->text, quadrant_x[i], quadrant_y[i], status);
+    }
+
+    // Instructions
+    char instructions[256];
+    if (mg->total_joined >= 2)
+    {
+        snprintf(instructions, sizeof(instructions), "%d players joined - Press ENTER to start", mg->total_joined);
+    }
+    else
+    {
+        snprintf(instructions, sizeof(instructions), "Waiting for players... (need 2+ to start)");
+    }
+    text_draw_center(ui->ren, &ui->text, cx, ui->h - 60, instructions);
+    text_draw_center(ui->ren, &ui->text, cx, ui->h - 30, "ESC = Back to menu");
+
+    SDL_RenderPresent(ui->ren);
+}
+
+int ui_sdl_poll_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, int *out_quit, int *players_pressed, int *start_pressed)
+{
+    *out_quit = 0;
+    *start_pressed = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        players_pressed[i] = 0;
+    }
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return 0;
+        }
+
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            if (key == SDLK_ESCAPE)
+            {
+                *out_quit = 1;
+                return 1;
+            }
+
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+            {
+                *start_pressed = 1;
+            }
+
+            // Check USE key for each player
+            for (int i = 0; i < 4; i++)
+            {
+                if (key == keybindings_get(kb, i, KB_ACTION_USE))
+                {
+                    players_pressed[i] = 1;
+                }
+            }
+        }
+    }
+
+    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return 1;
+}
+
+void ui_sdl_render_multiplayer_countdown(UiSdl *ui, const MultiplayerGame_s *mg, int countdown)
+{
+    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
+    SDL_RenderClear(ui->ren);
+
+    if (!ui->text_ok)
+    {
+        SDL_RenderPresent(ui->ren);
+        return;
+    }
+
+    int cx = ui->w / 2;
+    int cy = ui->h / 2;
+
+    // Show large countdown number
+    char countdown_text[16];
+    if (countdown > 0)
+    {
+        snprintf(countdown_text, sizeof(countdown_text), "%d", countdown);
+    }
+    else
+    {
+        snprintf(countdown_text, sizeof(countdown_text), "GO!");
+    }
+
+    text_draw_center(ui->ren, &ui->text, cx, cy, countdown_text);
+
+    SDL_RenderPresent(ui->ren);
+}
+
+void ui_sdl_render_multiplayer_game(UiSdl *ui, const MultiplayerGame_s *mg)
+{
+    int ox, oy;
+    // Use a dummy game to compute layout
+    Game dummy_game;
+    dummy_game.board = mg->board;
+    compute_layout(ui, &dummy_game, &ox, &oy);
+
+    // Background
+    SDL_SetRenderDrawColor(ui->ren, 15, 15, 18, 255);
+    SDL_RenderClear(ui->ren);
+
+    // Board area background
+    SDL_Rect board_bg = cell_rect(ui, ox, oy, 0, 0);
+    board_bg.w = (mg->board.width + 2) * ui->cell;
+    board_bg.h = (mg->board.height + 2) * ui->cell;
+
+    SDL_SetRenderDrawColor(ui->ren, 25, 25, 30, 255);
+    SDL_RenderFillRect(ui->ren, &board_bg);
+
+    // Border (1-cell thick)
+    SDL_SetRenderDrawColor(ui->ren, 220, 220, 220, 255);
+
+    // Top
+    SDL_Rect top = cell_rect(ui, ox, oy, 0, 0);
+    top.w = (mg->board.width + 2) * ui->cell;
+    SDL_RenderFillRect(ui->ren, &top);
+
+    // Bottom
+    SDL_Rect bottom = cell_rect(ui, ox, oy, 0, mg->board.height + 1);
+    bottom.w = (mg->board.width + 2) * ui->cell;
+    SDL_RenderFillRect(ui->ren, &bottom);
+
+    // Left
+    SDL_Rect left = cell_rect(ui, ox, oy, 0, 0);
+    left.h = (mg->board.height + 2) * ui->cell;
+    SDL_RenderFillRect(ui->ren, &left);
+
+    // Right
+    SDL_Rect right = cell_rect(ui, ox, oy, mg->board.width + 1, 0);
+    right.h = (mg->board.height + 2) * ui->cell;
+    SDL_RenderFillRect(ui->ren, &right);
+
+    // Main food
+    SDL_Rect food = cell_rect(ui, ox, oy, 1 + mg->board.food.x, 1 + mg->board.food.y);
+    SDL_SetRenderDrawColor(ui->ren, 240, 180, 40, 255);
+    SDL_RenderFillRect(ui->ren, &food);
+
+    // Additional food from dead snakes
+    for (int f = 0; f < mg->food_count; f++)
+    {
+        SDL_Rect extra_food = cell_rect(ui, ox, oy, 1 + mg->food[f].x, 1 + mg->food[f].y);
+        SDL_SetRenderDrawColor(ui->ren, 240, 180, 40, 255);
+        SDL_RenderFillRect(ui->ren, &extra_food);
+    }
+
+    // Render all snakes with player colors
+    for (int p = 0; p < 4; p++)
+    {
+        if (!mg->players[p].joined)
+            continue;
+
+        const Snake *snake = &mg->players[p].snake;
+        const PlayerColor *color = &PLAYER_COLORS[p];
+
+        for (int i = 0; i < snake->length; i++)
+        {
+            Vec2 seg = snake->segments[i];
+            SDL_Rect sr = cell_rect(ui, ox, oy, 1 + seg.x, 1 + seg.y);
+
+            if (i == 0)
+            {
+                // Head - brighter
+                SDL_SetRenderDrawColor(ui->ren, color->r, color->g, color->b, 255);
+            }
+            else
+            {
+                // Body - darker
+                SDL_SetRenderDrawColor(ui->ren, color->r * 0.7, color->g * 0.7, color->b * 0.7, 255);
+            }
+
+            SDL_RenderFillRect(ui->ren, &sr);
+        }
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Keybindings *kb, MultiplayerGame_s *mg)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+            return 0;
+
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            // Check directional keys for each player
+            for (int i = 0; i < 4; i++)
+            {
+                if (!mg->players[i].alive)
+                    continue;
+
+                int action = keybindings_find_action(kb, i, key);
+                if (action >= 0 && action <= KB_ACTION_RIGHT)
+                {
+                    Direction dir = DIR_RIGHT;
+                    switch (action)
+                    {
+                    case KB_ACTION_UP:    dir = DIR_UP; break;
+                    case KB_ACTION_DOWN:  dir = DIR_DOWN; break;
+                    case KB_ACTION_LEFT:  dir = DIR_LEFT; break;
+                    case KB_ACTION_RIGHT: dir = DIR_RIGHT; break;
+                    default: break;
+                    }
+
+                    // Push to player's input buffer
+                    input_buffer_push(&mg->players[i].input, dir, mg->players[i].snake.dir);
+                }
+            }
+        }
+    }
+
+    SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return 1;
 }

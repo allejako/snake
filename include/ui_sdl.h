@@ -34,7 +34,7 @@ typedef enum {
     UI_MENU_SELECT,
     UI_MENU_BACK
 } UiMenuAction;
-void ui_sdl_render_menu(UiSdl *ui, int selected_index);
+void ui_sdl_render_menu(UiSdl *ui, const Keybindings *kb, int selected_index);
 UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
 typedef enum {
@@ -53,6 +53,27 @@ void ui_sdl_destroy(UiSdl *ui);
 void ui_sdl_render_options(UiSdl *ui);
 void ui_sdl_render_multiplayer_placeholder(UiSdl *ui);
 
+// Multiplayer menu
+void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int selected_index);
+UiMenuAction ui_sdl_poll_multiplayer_menu(UiSdl *ui, const Keybindings *kb, int *out_quit);
+
+// Multiplayer placeholders
+void ui_sdl_render_multiplayer_local_placeholder(UiSdl *ui);
+void ui_sdl_render_multiplayer_online_placeholder(UiSdl *ui);
+
+// Forward declaration of MultiplayerGame from multiplayer_game.h
+// Include multiplayer_game.h in your source file to use these functions
+typedef struct MultiplayerGame_s MultiplayerGame_s;
+
+// Multiplayer lobby, countdown, and gameplay
+void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, const MultiplayerGame_s *mg);
+int ui_sdl_poll_multiplayer_lobby(UiSdl *ui, const Keybindings *kb, int *out_quit, int *players_pressed, int *start_pressed);
+
+void ui_sdl_render_multiplayer_countdown(UiSdl *ui, const MultiplayerGame_s *mg, int countdown);
+
+void ui_sdl_render_multiplayer_game(UiSdl *ui, const MultiplayerGame_s *mg);
+int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Keybindings *kb, MultiplayerGame_s *mg);
+
 int ui_sdl_poll(UiSdl *ui, const Keybindings *kb, int *out_has_dir, Direction *out_dir, int *out_pause);
 
 // Render
@@ -66,11 +87,11 @@ int ui_sdl_get_name(UiSdl *ui, char *out_name, int out_size);
 void ui_sdl_show_scoreboard(UiSdl *ui, const Scoreboard *sb);
 
 // Options menu
-void ui_sdl_render_options_menu(UiSdl *ui, int selected_index);
+void ui_sdl_render_options_menu(UiSdl *ui, const Keybindings *kb, int selected_index);
 UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
 // Keybinds player select
-void ui_sdl_render_keybind_player_select(UiSdl *ui, int selected_index);
+void ui_sdl_render_keybind_player_select(UiSdl *ui, const Keybindings *kb, int selected_index);
 UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
 // Keybind binding UI
@@ -79,15 +100,15 @@ SDL_Keycode ui_sdl_poll_keybind_input(UiSdl *ui, int *out_cancel, int *out_quit)
 
 // Sound settings - forward declare AudioSdl to avoid circular dependency
 typedef struct AudioSdl AudioSdl;
-void ui_sdl_render_sound_settings(UiSdl *ui, const AudioSdl *audio, int selected_index);
+void ui_sdl_render_sound_settings(UiSdl *ui, const Keybindings *kb, const AudioSdl *audio, int selected_index);
 UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
 // Game mode selection menu
-void ui_sdl_render_game_mode_select(UiSdl *ui, int selected_index);
+void ui_sdl_render_game_mode_select(UiSdl *ui, const Keybindings *kb, int selected_index);
 UiMenuAction ui_sdl_poll_game_mode_select(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
 // Speed selection menu (for Classic mode)
-void ui_sdl_render_speed_select(UiSdl *ui, int selected_index);
+void ui_sdl_render_speed_select(UiSdl *ui, const Keybindings *kb, int selected_index);
 UiMenuAction ui_sdl_poll_speed_select(UiSdl *ui, const Keybindings *kb, int *out_quit);
 
 #endif

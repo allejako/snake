@@ -1,0 +1,99 @@
+#ifndef MULTIPLAYER_GAME_H
+#define MULTIPLAYER_GAME_H
+
+#include "common.h"
+#include "board.h"
+#include "snake.h"
+#include "input_buffer.h"
+
+#define MAX_PLAYERS 4
+#define MAX_FOOD_ITEMS 32
+
+/**
+ * Player state in multiplayer game.
+ */
+typedef struct {
+    Snake snake;              // Snake state
+    InputBuffer input;        // Input buffer for this player
+    int joined;               // 1 if player has joined, 0 otherwise
+    int alive;                // 1 if snake is alive, 0 if dead
+    GameState death_state;    // GAME_RUNNING, GAME_DYING, or GAME_OVER
+} MultiplayerPlayer;
+
+/**
+ * Multiplayer game state for local multiplayer.
+ * Supports up to 4 players with separate snakes on shared board.
+ */
+typedef struct MultiplayerGame_s {
+    Board board;              // Shared game board
+    MultiplayerPlayer players[MAX_PLAYERS];  // Player states
+    Vec2 food[MAX_FOOD_ITEMS]; // Food positions
+    int food_count;           // Number of active food items
+    int active_players;       // Number of players currently alive
+    int total_joined;         // Total number of players who joined
+} MultiplayerGame_s;
+
+/**
+ * Player colors for visual distinction.
+ */
+typedef struct {
+    int r, g, b;
+} PlayerColor;
+
+// Player colors: Red, Blue, Green, Orange
+static const PlayerColor PLAYER_COLORS[MAX_PLAYERS] = {
+    {240, 60, 60},   // Player 1: Red
+    {60, 120, 240},  // Player 2: Blue
+    {60, 220, 120},  // Player 3: Green
+    {240, 160, 40}   // Player 4: Orange
+};
+
+/**
+ * Initialize multiplayer game with specified board dimensions.
+ */
+void multiplayer_game_init(MultiplayerGame_s *mg, int width, int height);
+
+/**
+ * Add a player to the game (called when player presses USE in lobby).
+ * Returns 1 if player joined successfully, 0 if already joined.
+ */
+int multiplayer_game_join_player(MultiplayerGame_s *mg, int player_index);
+
+/**
+ * Remove a player from the game (called when player presses USE again in lobby).
+ * Returns 1 if player left successfully, 0 if not joined.
+ */
+int multiplayer_game_leave_player(MultiplayerGame_s *mg, int player_index);
+
+/**
+ * Start the game - initialize snakes at starting positions.
+ */
+void multiplayer_game_start(MultiplayerGame_s *mg);
+
+/**
+ * Update game state by one tick - move all snakes, check collisions, handle food.
+ */
+void multiplayer_game_update(MultiplayerGame_s *mg);
+
+/**
+ * Change direction for a specific player's snake.
+ */
+void multiplayer_game_change_direction(MultiplayerGame_s *mg, int player_index, Direction dir);
+
+/**
+ * Check if game is over (only 0 or 1 players alive).
+ */
+int multiplayer_game_is_over(const MultiplayerGame_s *mg);
+
+/**
+ * Update death animation for all dying snakes.
+ * Returns 1 if any animations are still playing, 0 if all complete.
+ */
+int multiplayer_game_update_death_animations(MultiplayerGame_s *mg);
+
+/**
+ * Add food at a specific position.
+ */
+void multiplayer_game_add_food(MultiplayerGame_s *mg, Vec2 pos);
+
+#endif

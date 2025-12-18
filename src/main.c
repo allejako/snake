@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "game.h"
+#include "multiplayer_game.h"
 #include "common.h"
 #include "scoreboard.h"
 #include "ui_sdl.h"
@@ -26,7 +27,12 @@ typedef enum
 {
     APP_MENU = 0,
     APP_SINGLEPLAYER,
-    APP_MULTIPLAYER,
+    APP_MULTIPLAYER_MENU,
+    APP_MULTIPLAYER_SPEED_SELECT,
+    APP_MULTIPLAYER_LOBBY,
+    APP_MULTIPLAYER_COUNTDOWN,
+    APP_MULTIPLAYER_GAME,
+    APP_MULTIPLAYER_ONLINE,
     APP_SCOREBOARD,
     APP_QUIT,
     APP_OPTIONS_MENU,
@@ -75,6 +81,14 @@ typedef enum
 
 typedef enum
 {
+    MULTIPLAYER_MENU_LOCAL = 0,
+    MULTIPLAYER_MENU_ONLINE,
+    MULTIPLAYER_MENU_BACK,
+    MULTIPLAYER_MENU_COUNT
+} MultiplayerMenuItem;
+
+typedef enum
+{
     GAME_MODE_CLASSIC = 0,
     GAME_MODE_MODERN,
     GAME_MODE_VERSUS,
@@ -102,6 +116,7 @@ typedef struct
     AppState *state;              // Current application state
     int *menu_selected;           // Main menu cursor position
     int *options_menu_selected;   // Options menu cursor position
+    int *multiplayer_menu_selected; // Multiplayer menu cursor position
     int *keybind_player_selected; // Keybind player select cursor
     int *keybind_current_player;  // Currently configuring player (0-3)
     int *keybind_current_action;  // Currently configuring action (0-4)
@@ -113,12 +128,14 @@ typedef struct
     unsigned int *current_tick_ms;    // Runtime-variable tick speed
     int *modern_mode_score_at_last_speed_update; // Track Modern mode speed changes
     Game *game;                   // Game state
+    MultiplayerGame_s *mp_game;   // Multiplayer game state
     InputBuffer *input;           // Input buffer for gameplay
     char *player_name;            // Current player name
     int *paused;                  // Whether game is paused
     int *pause_selected;          // Pause menu cursor position (0-2)
     int *pause_in_options;        // Whether in pause options screen
     unsigned int *last_tick;      // Last game update tick (ms)
+    unsigned int *countdown_start; // Countdown start time (ms)
     int *pending_save_this_round; // Whether score should be saved on game over
 } AppContext;
 
@@ -167,7 +184,8 @@ static void handle_menu_state(AppContext *ctx)
             break;
 
         case MENU_MULTIPLAYER:
-            *ctx->state = APP_MULTIPLAYER;
+            *ctx->state = APP_MULTIPLAYER_MENU;
+            *ctx->multiplayer_menu_selected = 0;
             break;
 
         case MENU_OPTIONS:
@@ -185,7 +203,7 @@ static void handle_menu_state(AppContext *ctx)
         }
     }
 
-    ui_sdl_render_menu(ctx->ui, *ctx->menu_selected);
+    ui_sdl_render_menu(ctx->ui, ctx->keybindings, *ctx->menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -203,40 +221,52 @@ static void handle_game_mode_select_state(AppContext *ctx)
         return;
     }
 
+    // Menu has 4 items: Classic, Modern, Versus, Back
+    const int GAME_MODE_MENU_ITEMS = 4;
+
     if (action == UI_MENU_UP)
     {
-        *ctx->game_mode_selected = (*ctx->game_mode_selected - 1 + GAME_MODE_COUNT) % GAME_MODE_COUNT;
+        *ctx->game_mode_selected = (*ctx->game_mode_selected - 1 + GAME_MODE_MENU_ITEMS) % GAME_MODE_MENU_ITEMS;
     }
     else if (action == UI_MENU_DOWN)
     {
-        *ctx->game_mode_selected = (*ctx->game_mode_selected + 1) % GAME_MODE_COUNT;
+        *ctx->game_mode_selected = (*ctx->game_mode_selected + 1) % GAME_MODE_MENU_ITEMS;
     }
     else if (action == UI_MENU_SELECT)
     {
-        switch (*ctx->game_mode_selected)
+        if (*ctx->game_mode_selected == 3)
         {
-        case GAME_MODE_CLASSIC:
-            *ctx->current_game_mode = GAME_MODE_CLASSIC;
-            *ctx->state = APP_SPEED_SELECT;
-            *ctx->speed_selected = 0;
-            break;
+            // Back option selected
+            *ctx->state = APP_MENU;
+        }
+        else
+        {
+            switch (*ctx->game_mode_selected)
+            {
+            case GAME_MODE_CLASSIC:
+                *ctx->current_game_mode = GAME_MODE_CLASSIC;
+                *ctx->state = APP_SPEED_SELECT;
+                *ctx->speed_selected = 0;
+                break;
 
-        case GAME_MODE_MODERN:
-            *ctx->current_game_mode = GAME_MODE_MODERN;
-            // Start Modern mode immediately - set tick speed to 80ms
-            *ctx->current_tick_ms = 80;
-            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
-            input_buffer_clear(ctx->input);
-            *ctx->last_tick = (unsigned int)SDL_GetTicks();
-            *ctx->pending_save_this_round = 1;
-            *ctx->modern_mode_score_at_last_speed_update = 0;
-            *ctx->state = APP_SINGLEPLAYER;
-            break;
+            case GAME_MODE_MODERN:
+                *ctx->current_game_mode = GAME_MODE_MODERN;
+                // Start Modern mode immediately - set tick speed to 80ms
+                *ctx->current_tick_ms = 80;
+                game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+                input_buffer_clear(ctx->input);
+                *ctx->last_tick = (unsigned int)SDL_GetTicks();
+                *ctx->pending_save_this_round = 1;
+                *ctx->modern_mode_score_at_last_speed_update = 0;
+                *ctx->state = APP_SINGLEPLAYER;
+                break;
 
-        case GAME_MODE_VERSUS:
-            // Placeholder - show coming soon
-            *ctx->state = APP_MULTIPLAYER;
-            break;
+            case GAME_MODE_VERSUS:
+                // Placeholder - show coming soon (maybe local 2-player on one board?)
+                *ctx->state = APP_MULTIPLAYER_SPEED_SELECT;
+                *ctx->speed_selected = 0;
+                break;
+            }
         }
     }
     else if (action == UI_MENU_BACK)
@@ -244,7 +274,7 @@ static void handle_game_mode_select_state(AppContext *ctx)
         *ctx->state = APP_MENU;
     }
 
-    ui_sdl_render_game_mode_select(ctx->ui, *ctx->game_mode_selected);
+    ui_sdl_render_game_mode_select(ctx->ui, ctx->keybindings, *ctx->game_mode_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -303,7 +333,7 @@ static void handle_speed_select_state(AppContext *ctx)
         *ctx->state = APP_GAME_MODE_SELECT;
     }
 
-    ui_sdl_render_speed_select(ctx->ui, *ctx->speed_selected);
+    ui_sdl_render_speed_select(ctx->ui, ctx->keybindings, *ctx->speed_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -351,7 +381,7 @@ static void handle_options_menu_state(AppContext *ctx)
         *ctx->state = APP_MENU;
     }
 
-    ui_sdl_render_options_menu(ctx->ui, *ctx->options_menu_selected);
+    ui_sdl_render_options_menu(ctx->ui, ctx->keybindings, *ctx->options_menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -395,7 +425,7 @@ static void handle_keybinds_player_select_state(AppContext *ctx)
         *ctx->state = APP_OPTIONS_MENU;
     }
 
-    ui_sdl_render_keybind_player_select(ctx->ui, *ctx->keybind_player_selected);
+    ui_sdl_render_keybind_player_select(ctx->ui, ctx->keybindings, *ctx->keybind_player_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -519,15 +549,254 @@ static void handle_sound_settings_state(AppContext *ctx)
         }
     }
 
-    ui_sdl_render_sound_settings(ctx->ui, ctx->audio, *ctx->sound_selected);
+    ui_sdl_render_sound_settings(ctx->ui, ctx->keybindings, ctx->audio, *ctx->sound_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
 /**
- * Handle multiplayer placeholder state.
- * Currently displays a "Coming Soon" message. ESC returns to main menu.
+ * Handle multiplayer menu state - navigate between Local and Online.
+ * Updates state to transition to local/online multiplayer or back to main menu.
  */
-static void handle_multiplayer_state(AppContext *ctx)
+static void handle_multiplayer_menu_state(AppContext *ctx)
+{
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_multiplayer_menu(ctx->ui, ctx->keybindings, &quit);
+    if (quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected - 1 + MULTIPLAYER_MENU_COUNT) % MULTIPLAYER_MENU_COUNT;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected + 1) % MULTIPLAYER_MENU_COUNT;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        if (*ctx->multiplayer_menu_selected == MULTIPLAYER_MENU_LOCAL)
+        {
+            *ctx->state = APP_MULTIPLAYER_SPEED_SELECT;
+            *ctx->speed_selected = 0;
+        }
+        else if (*ctx->multiplayer_menu_selected == MULTIPLAYER_MENU_ONLINE)
+        {
+            *ctx->state = APP_MULTIPLAYER_ONLINE;
+        }
+        else if (*ctx->multiplayer_menu_selected == MULTIPLAYER_MENU_BACK)
+        {
+            *ctx->state = APP_MENU;
+        }
+    }
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_MENU;
+    }
+
+    ui_sdl_render_multiplayer_menu(ctx->ui, ctx->keybindings, *ctx->multiplayer_menu_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle multiplayer speed selection state - choose game speed before lobby.
+ */
+static void handle_multiplayer_speed_select_state(AppContext *ctx)
+{
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_speed_select(ctx->ui, ctx->keybindings, &quit);
+    if (quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->speed_selected = (*ctx->speed_selected - 1 + CLASSIC_SPEED_COUNT) % CLASSIC_SPEED_COUNT;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->speed_selected = (*ctx->speed_selected + 1) % CLASSIC_SPEED_COUNT;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        // Set speed
+        switch (*ctx->speed_selected)
+        {
+        case CLASSIC_SPEED_SLOW:
+            *ctx->current_tick_ms = 130;
+            break;
+        case CLASSIC_SPEED_NORMAL:
+            *ctx->current_tick_ms = 100;
+            break;
+        case CLASSIC_SPEED_FAST:
+            *ctx->current_tick_ms = 70;
+            break;
+        default:
+            *ctx->current_tick_ms = 100;
+        }
+
+        // Initialize multiplayer game and go to lobby
+        multiplayer_game_init(ctx->mp_game, BOARD_WIDTH, BOARD_HEIGHT);
+        *ctx->state = APP_MULTIPLAYER_LOBBY;
+    }
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_MULTIPLAYER_MENU;
+    }
+
+    ui_sdl_render_speed_select(ctx->ui, ctx->keybindings, *ctx->speed_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle multiplayer lobby state - players join by pressing USE key.
+ */
+static void handle_multiplayer_lobby_state(AppContext *ctx)
+{
+    int quit = 0;
+    int players_pressed[MAX_PLAYERS] = {0, 0, 0, 0};
+    int start_pressed = 0;
+
+    int running = ui_sdl_poll_multiplayer_lobby(ctx->ui, ctx->keybindings, &quit, players_pressed, &start_pressed);
+
+    if (!running || quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    // Handle USE key presses for join/leave
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (players_pressed[i])
+        {
+            if (ctx->mp_game->players[i].joined)
+            {
+                multiplayer_game_leave_player(ctx->mp_game, i);
+            }
+            else
+            {
+                multiplayer_game_join_player(ctx->mp_game, i);
+            }
+        }
+    }
+
+    // Handle start game (ENTER) if 2+ players
+    if (start_pressed && ctx->mp_game->total_joined >= 2)
+    {
+        multiplayer_game_start(ctx->mp_game);
+        *ctx->countdown_start = (unsigned int)SDL_GetTicks();
+        *ctx->state = APP_MULTIPLAYER_COUNTDOWN;
+    }
+
+    ui_sdl_render_multiplayer_lobby(ctx->ui, ctx->keybindings, ctx->mp_game);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle multiplayer countdown state - 3 second countdown before game starts.
+ */
+static void handle_multiplayer_countdown_state(AppContext *ctx)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *ctx->state = APP_QUIT;
+            return;
+        }
+    }
+
+    unsigned int now = (unsigned int)SDL_GetTicks();
+    unsigned int elapsed = now - *ctx->countdown_start;
+    int countdown = 3 - (int)(elapsed / 1000);
+
+    if (countdown < 0)
+    {
+        // Countdown finished, start game
+        *ctx->last_tick = (unsigned int)SDL_GetTicks();
+        *ctx->state = APP_MULTIPLAYER_GAME;
+        return;
+    }
+
+    ui_sdl_render_multiplayer_countdown(ctx->ui, ctx->mp_game, countdown);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle multiplayer gameplay state - multiple snakes on one board.
+ */
+static void handle_multiplayer_game_state(AppContext *ctx)
+{
+    ui_sdl_render_multiplayer_game(ctx->ui, ctx->mp_game);
+    SDL_Delay(GAME_FRAME_DELAY_MS);
+
+    // Poll input from all players
+    int running = ui_sdl_poll_multiplayer_game(ctx->ui, ctx->keybindings, ctx->mp_game);
+    if (!running)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    unsigned int now = (unsigned int)SDL_GetTicks();
+
+    // Update game state
+    if ((now - *ctx->last_tick) >= *ctx->current_tick_ms)
+    {
+        *ctx->last_tick = now;
+
+        // Process input buffers for all players
+        for (int i = 0; i < MAX_PLAYERS; i++)
+        {
+            if (ctx->mp_game->players[i].alive && ctx->mp_game->players[i].death_state == GAME_RUNNING)
+            {
+                Direction next_dir;
+                if (input_buffer_pop(&ctx->mp_game->players[i].input, &next_dir))
+                {
+                    multiplayer_game_change_direction(ctx->mp_game, i, next_dir);
+                }
+            }
+        }
+
+        multiplayer_game_update(ctx->mp_game);
+    }
+
+    // Handle death animations
+    int any_dying = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (ctx->mp_game->players[i].death_state == GAME_DYING)
+        {
+            any_dying = 1;
+            break;
+        }
+    }
+
+    if (any_dying && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
+    {
+        multiplayer_game_update_death_animations(ctx->mp_game);
+    }
+
+    // Check if game is over
+    if (multiplayer_game_is_over(ctx->mp_game))
+    {
+        // Game over - return to lobby
+        *ctx->state = APP_MULTIPLAYER_LOBBY;
+        multiplayer_game_init(ctx->mp_game, BOARD_WIDTH, BOARD_HEIGHT);
+    }
+}
+
+/**
+ * Handle online multiplayer placeholder state.
+ * Currently displays a "Coming Soon" message. ESC returns to multiplayer menu.
+ */
+static void handle_multiplayer_online_state(AppContext *ctx)
 {
     SDL_Event e;
     while (SDL_PollEvent(&e))
@@ -539,10 +808,10 @@ static void handle_multiplayer_state(AppContext *ctx)
         }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
         {
-            *ctx->state = APP_MENU;
+            *ctx->state = APP_MULTIPLAYER_MENU;
         }
     }
-    ui_sdl_render_multiplayer_placeholder(ctx->ui);
+    ui_sdl_render_multiplayer_online_placeholder(ctx->ui);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -727,19 +996,31 @@ static void handle_singleplayer_state(AppContext *ctx)
     // Save score on GAME_OVER
     if (ctx->game->state == GAME_OVER && *ctx->pending_save_this_round)
     {
-        char namebuf[SB_MAX_NAME_LEN];
-        if (ui_sdl_get_name(ctx->ui, namebuf, sizeof(namebuf)))
-        {
-            if (namebuf[0] != '\0')
-            {
-                strncpy(ctx->player_name, namebuf, SB_MAX_NAME_LEN - 1);
-                ctx->player_name[SB_MAX_NAME_LEN - 1] = '\0';
-            }
-        }
+        // Convert GameMode to ScoreGameMode
+        ScoreGameMode score_mode = (*ctx->current_game_mode == GAME_MODE_MODERN)
+            ? SCORE_MODE_MODERN
+            : SCORE_MODE_CLASSIC;
 
-        scoreboard_add(ctx->sb, ctx->player_name, ctx->game->score);
-        scoreboard_sort(ctx->sb);
-        scoreboard_save(ctx->sb);
+        // Check if score qualifies for top 10
+        int qualifies = scoreboard_qualifies_for_top_n(ctx->sb, ctx->game->score, score_mode, 10);
+
+        if (qualifies)
+        {
+            char namebuf[SB_MAX_NAME_LEN];
+            if (ui_sdl_get_name(ctx->ui, namebuf, sizeof(namebuf)))
+            {
+                if (namebuf[0] != '\0')
+                {
+                    strncpy(ctx->player_name, namebuf, SB_MAX_NAME_LEN - 1);
+                    ctx->player_name[SB_MAX_NAME_LEN - 1] = '\0';
+                }
+            }
+
+            scoreboard_add(ctx->sb, ctx->player_name, ctx->game->score, score_mode);
+            scoreboard_sort(ctx->sb);
+            scoreboard_trim_to_top_n(ctx->sb, 10);
+            scoreboard_save(ctx->sb);
+        }
 
         *ctx->pending_save_this_round = 0;
         *ctx->state = APP_SCOREBOARD;
@@ -842,6 +1123,7 @@ int main(int argc, char *argv[])
     AppState state = APP_MENU;
     int menu_selected = 0;
     int options_menu_selected = 0;
+    int multiplayer_menu_selected = 0;
     int keybind_player_selected = 0;
     int keybind_current_player = 0;
     int keybind_current_action = 0;
@@ -854,6 +1136,7 @@ int main(int argc, char *argv[])
     int modern_mode_score_at_last_speed_update = 0;
 
     Game game;
+    MultiplayerGame_s mp_game;
     InputBuffer input;
     input_buffer_init(&input);
 
@@ -863,6 +1146,7 @@ int main(int argc, char *argv[])
     int pause_in_options = 0; // 0=pause menu, 1=options screen
 
     unsigned int last_tick = 0;
+    unsigned int countdown_start = 0;
     int pending_save_this_round = 0;
 
     // Initialize context struct
@@ -874,6 +1158,7 @@ int main(int argc, char *argv[])
         .state = &state,
         .menu_selected = &menu_selected,
         .options_menu_selected = &options_menu_selected,
+        .multiplayer_menu_selected = &multiplayer_menu_selected,
         .keybind_player_selected = &keybind_player_selected,
         .keybind_current_player = &keybind_current_player,
         .keybind_current_action = &keybind_current_action,
@@ -885,12 +1170,14 @@ int main(int argc, char *argv[])
         .current_tick_ms = &current_tick_ms,
         .modern_mode_score_at_last_speed_update = &modern_mode_score_at_last_speed_update,
         .game = &game,
+        .mp_game = &mp_game,
         .input = &input,
         .player_name = player_name,
         .paused = &paused,
         .pause_selected = &pause_selected,
         .pause_in_options = &pause_in_options,
         .last_tick = &last_tick,
+        .countdown_start = &countdown_start,
         .pending_save_this_round = &pending_save_this_round};
 
     while (state != APP_QUIT)
@@ -918,8 +1205,23 @@ int main(int argc, char *argv[])
         case APP_SPEED_SELECT:
             handle_speed_select_state(&ctx);
             break;
-        case APP_MULTIPLAYER:
-            handle_multiplayer_state(&ctx);
+        case APP_MULTIPLAYER_MENU:
+            handle_multiplayer_menu_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_SPEED_SELECT:
+            handle_multiplayer_speed_select_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_LOBBY:
+            handle_multiplayer_lobby_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_COUNTDOWN:
+            handle_multiplayer_countdown_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_GAME:
+            handle_multiplayer_game_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_ONLINE:
+            handle_multiplayer_online_state(&ctx);
             break;
         case APP_SCOREBOARD:
             handle_scoreboard_state(&ctx);
