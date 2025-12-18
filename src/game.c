@@ -1,7 +1,6 @@
 #include "game.h"
 
 #define POINTS_PER_FOOD 10
-#define COMBO_WINDOW_MS 1250  // 1.25 seconds
 
 static void game_spawn_snake(Game *g) {
     Vec2 start;
@@ -22,7 +21,7 @@ void game_init(Game *g, int width, int height) {
     // Initialize combo system
     g->combo_count = 0;
     g->combo_expiry_time = 0;
-    g->combo_window_ms = COMBO_WINDOW_MS;
+    g->combo_window_ms = 0;  // Will be set based on game speed in main.c
     g->combo_best = 0;
     g->food_eaten_this_frame = 0;
 

@@ -16,12 +16,20 @@
 
 #define BOARD_WIDTH 20
 #define BOARD_HEIGHT 20
-#define TICK_MS 120
+#define TICK_MS 95
 #define PAUSE_MENU_COUNT 3
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 640
 #define MENU_FRAME_DELAY_MS 16 // ~60 FPS for menus
 #define GAME_FRAME_DELAY_MS 1 // Minimal delay for gameplay
+
+// Modern mode speed increase
+#define SPEED_INCREASE_POINTS 60  // Increase speed every N points
+#define SPEED_INCREASE_MS 5      // Decrease tick time by N ms
+#define MIN_TICK_MS 40            // Minimum tick time (speed cap)
+
+// Combo system
+#define COMBO_WINDOW_TICKS 13     // Number of ticks player has to eat next food
 
 typedef enum
 {
@@ -151,6 +159,7 @@ static void handle_menu_state(AppContext *ctx)
             *ctx->modern_mode_score_at_last_speed_update = 0;
             game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
+            ctx->game->combo_window_ms = TICK_MS * COMBO_WINDOW_TICKS; // Initialize combo window
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
@@ -864,6 +873,9 @@ static void handle_singleplayer_state(AppContext *ctx)
         // Handle combo SFX and timer update if food was eaten
         if (ctx->game->food_eaten_this_frame)
         {
+            // Update combo window based on current game speed
+            ctx->game->combo_window_ms = *ctx->current_tick_ms * COMBO_WINDOW_TICKS;
+
             // Update combo expiry time
             ctx->game->combo_expiry_time = now + ctx->game->combo_window_ms;
 
@@ -877,15 +889,15 @@ static void handle_singleplayer_state(AppContext *ctx)
             }
         }
 
-        // Modern mode: increase speed every 40 points
+        // Modern mode: increase speed dynamically
         int score_delta = ctx->game->score - *ctx->modern_mode_score_at_last_speed_update;
-        int speed_increases = score_delta / 40;
+        int speed_increases = score_delta / SPEED_INCREASE_POINTS;
 
         if (speed_increases > 0)
         {
-            int new_tick = *ctx->current_tick_ms - (speed_increases * 10);
-            if (new_tick < 40)
-                new_tick = 40; // Floor at 40ms
+            int new_tick = *ctx->current_tick_ms - (speed_increases * SPEED_INCREASE_MS);
+            if (new_tick < MIN_TICK_MS)
+                new_tick = MIN_TICK_MS;
             *ctx->current_tick_ms = new_tick;
             *ctx->modern_mode_score_at_last_speed_update = ctx->game->score;
         }
