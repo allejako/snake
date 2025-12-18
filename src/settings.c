@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 // Default keybindings for all 4 players
 static const SDL_Keycode DEFAULT_BINDINGS[SETTINGS_MAX_PLAYERS][SETTINGS_ACTIONS_PER_PLAYER] = {
@@ -166,6 +169,13 @@ int settings_load(Settings *s) {
 }
 
 int settings_save(const Settings *s) {
+    // Create data directory if it doesn't exist
+    #ifdef _WIN32
+        mkdir("data");
+    #else
+        mkdir("data", 0755);
+    #endif
+
     FILE *f = fopen(s->filename, "w");
     if (!f) {
         return 0;

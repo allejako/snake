@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 static void scoreboard_reserve(Scoreboard *sb, int needed) {
     if (sb->capacity >= needed) return;
@@ -55,6 +57,13 @@ void scoreboard_load(Scoreboard *sb) {
 }
 
 void scoreboard_save(const Scoreboard *sb) {
+    // Create data directory if it doesn't exist
+    #ifdef _WIN32
+        mkdir("data");
+    #else
+        mkdir("data", 0755);
+    #endif
+
     FILE *f = fopen(sb->filename, "w");
     if (!f) return;
 
