@@ -14,14 +14,29 @@
  */
 typedef struct {
     Snake snake;              // Snake state
-    InputBuffer input;        // Input buffer for this player
+    InputBuffer input;        // Input buffer for this player (only used on host)
     int joined;               // 1 if player has joined, 0 otherwise
     int alive;                // 1 if snake is alive, 0 if dead
     GameState death_state;    // GAME_RUNNING, GAME_DYING, or GAME_OVER
+
+    // Scoring and lives
+    int score;                // Player's score
+    int fruits_eaten;         // Number of fruits eaten
+    int lives;                // Lives remaining (starts at 3)
+
+    // Combo system (per-player)
+    int combo_count;          // Current combo streak
+    unsigned int combo_expiry_time; // When combo expires (milliseconds)
+    int combo_best;           // Best combo achieved this game
+    int food_eaten_this_frame; // Flag: 1 if food was eaten this update
+
+    // Network identity
+    char client_id[64];       // mpapi client ID (empty string for local player)
+    int is_local_player;      // 1 if this is the local player, 0 if remote
 } MultiplayerPlayer;
 
 /**
- * Multiplayer game state for local multiplayer.
+ * Multiplayer game state for online multiplayer.
  * Supports up to 4 players with separate snakes on shared board.
  */
 typedef struct MultiplayerGame_s {
@@ -31,6 +46,15 @@ typedef struct MultiplayerGame_s {
     int food_count;           // Number of active food items
     int active_players;       // Number of players currently alive
     int total_joined;         // Total number of players who joined
+
+    // Network state
+    int is_host;              // 1 if local instance is host, 0 if client
+    int local_player_index;   // Which player slot is local (-1 if spectating)
+    unsigned int combo_window_ms; // Combo timer window (based on tick speed)
+
+    // Session info
+    char session_id[8];       // 6-char session ID + null terminator
+    char host_client_id[64];  // Host's mpapi client ID
 } MultiplayerGame_s;
 
 /**

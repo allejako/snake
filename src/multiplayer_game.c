@@ -1,4 +1,5 @@
 #include "multiplayer_game.h"
+#include "game.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -269,6 +270,28 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
         if (ate_food)
         {
             Vec2 next = next_positions[i];
+
+            // Update combo system
+            if (player->combo_count > 0 && player->combo_expiry_time > 0)
+            {
+                player->combo_count++;
+            }
+            else
+            {
+                player->combo_count = 1;
+            }
+
+            if (player->combo_count > player->combo_best)
+            {
+                player->combo_best = player->combo_count;
+            }
+
+            // Calculate score with multiplier
+            int multiplier = game_get_combo_multiplier(player->combo_count);
+            player->score += 10 * multiplier;
+            player->fruits_eaten++;
+            player->food_eaten_this_frame = 1;
+            player->combo_expiry_time = 1;  // Placeholder, updated by host timer
 
             // Check main board food
             if (vec2_equal(next, mg->board.food))

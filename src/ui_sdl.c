@@ -5,7 +5,11 @@
 #define BOARD_BORDER_CELLS 2 // 1-cell border on each side
 #define LAYOUT_PADDING_CELLS 4
 #define DEFAULT_FONT_SIZE 18
-
+#define TOP_OFFSET 60 // Extra space at top for combo bar and UI
+#define BOTTOM_OFFSET 40 // Extra space at bottom
+#define COMBO_BAR_HEIGHT 20
+#define COMBO_TEXT_SPACING 5 // Space between text and bar
+#define COMBO_TEXT_CENTER_OFFSET 50 // Approximate offset for centering text
 static void compute_layout(UiSdl *ui, const Game *g, int *out_origin_x, int *out_origin_y)
 {
     // Draw a board with 1-cell border, but in pixels
@@ -27,11 +31,11 @@ static void compute_layout(UiSdl *ui, const Game *g, int *out_origin_x, int *out
     int board_px_h = board_cells_h * ui->cell;
 
     *out_origin_x = (ui->w - board_px_w) / 2;
-    *out_origin_y = (ui->h - board_px_h) / 2;
+    *out_origin_y = (ui->h - board_px_h - TOP_OFFSET - BOTTOM_OFFSET) / 2 + TOP_OFFSET;
     if (*out_origin_x < ui->pad)
         *out_origin_x = ui->pad;
-    if (*out_origin_y < ui->pad)
-        *out_origin_y = ui->pad;
+    if (*out_origin_y < ui->pad + TOP_OFFSET)
+        *out_origin_y = ui->pad + TOP_OFFSET;
 }
 
 static SDL_Rect cell_rect(UiSdl *ui, int origin_x, int origin_y, int cx, int cy)
@@ -250,32 +254,28 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
         {
             unsigned int now = (unsigned int)SDL_GetTicks();
 
-            // Display combo text
-            char combo_text[32];
-            snprintf(combo_text, sizeof(combo_text), "COMBO x%d", g->combo_count);
-            int combo_x = ox + (g->board.width + 2) * ui->cell + 20;
-            int combo_y = oy + 10;
-            text_draw(ui->ren, &ui->text, combo_x, combo_y, combo_text);
+            // Calculate bar width to match board + border size
+            int bar_width = (g->board.width + 2) * ui->cell;
+            int board_center_x = ox + bar_width / 2;
 
-            // Draw combo timer bar
+            // Position the bar centered between top of screen and top of game border
+            int bar_x = ox;
+            int bar_y = (oy / 2) - (COMBO_BAR_HEIGHT / 2);
+
+            // Draw combo timer bar (if active)
             if (now < g->combo_expiry_time)
             {
                 float time_remaining = (float)(g->combo_expiry_time - now);
                 float time_total = (float)g->combo_window_ms;
                 float fill_ratio = time_remaining / time_total;
 
-                int bar_width = 120;
-                int bar_height = 8;
-                int bar_x = combo_x;
-                int bar_y = combo_y + 25;
-
                 // Background (empty bar)
-                SDL_Rect bg_rect = {bar_x, bar_y, bar_width, bar_height};
+                SDL_Rect bg_rect = {bar_x, bar_y, bar_width, COMBO_BAR_HEIGHT};
                 SDL_SetRenderDrawColor(ui->ren, 50, 50, 50, 255);
                 SDL_RenderFillRect(ui->ren, &bg_rect);
 
                 // Filled portion (timer)
-                SDL_Rect fill_rect = {bar_x, bar_y, (int)(bar_width * fill_ratio), bar_height};
+                SDL_Rect fill_rect = {bar_x, bar_y, (int)(bar_width * fill_ratio), COMBO_BAR_HEIGHT};
 
                 // Color based on tier
                 int tier = game_get_combo_tier(g->combo_count);
@@ -299,13 +299,22 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
                 // Border
                 SDL_SetRenderDrawColor(ui->ren, 200, 200, 200, 255);
                 SDL_RenderDrawRect(ui->ren, &bg_rect);
-
-                // Show multiplier below the bar
-                int multiplier = game_get_combo_multiplier(g->combo_count);
-                char mult_text[32];
-                snprintf(mult_text, sizeof(mult_text), "x%d Score!", multiplier);
-                text_draw(ui->ren, &ui->text, bar_x, bar_y + 15, mult_text);
             }
+
+            // Draw combo text centered above the bar
+            char combo_text[32];
+            snprintf(combo_text, sizeof(combo_text), "COMBO x%d", g->combo_count);
+            int combo_text_x = board_center_x - COMBO_TEXT_CENTER_OFFSET;
+            int combo_text_y = bar_y - DEFAULT_FONT_SIZE - COMBO_TEXT_SPACING;
+            text_draw(ui->ren, &ui->text, combo_text_x, combo_text_y, combo_text);
+
+            // Draw multiplier text centered below the bar
+            int multiplier = game_get_combo_multiplier(g->combo_count);
+            char mult_text[32];
+            snprintf(mult_text, sizeof(mult_text), "%dx Mult", multiplier);
+            int mult_text_x = board_center_x - COMBO_TEXT_CENTER_OFFSET;
+            int mult_text_y = bar_y + COMBO_BAR_HEIGHT + COMBO_TEXT_SPACING;
+            text_draw(ui->ren, &ui->text, mult_text_x, mult_text_y, mult_text);
         }
 
         text_draw(ui->ren, &ui->text, ox, oy + (g->board.height + 2) * ui->cell + 8,
@@ -1603,5 +1612,368 @@ UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out
     }
 
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
+    return UI_MENU_NONE;
+}
+
+// ============================================================================
+// Online Multiplayer UI Functions
+// ============================================================================
+
+#include "online_multiplayer.h"
+
+// Helper functions for text rendering with colors (simplified)
+static void text_sdl_draw_centered(TextRenderer text, SDL_Renderer *ren, const char *msg,
+                                     int x, int y, float scale, int r, int g, int b)
+{
+    (void)scale; (void)r; (void)g; (void)b; // Ignore for now
+    text_draw_center(ren, &text, x, y, msg);
+}
+
+static void text_sdl_draw(TextRenderer text, SDL_Renderer *ren, const char *msg,
+                           int x, int y, float scale, int r, int g, int b)
+{
+    (void)scale; (void)r; (void)g; (void)b; // Ignore for now
+    text_draw(ren, &text, x, y, msg);
+}
+
+void ui_sdl_render_multiplayer_online_menu(UiSdl *ui, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    const char *title = "Online Multiplayer";
+    const char *options[] = {"Host Game", "Join Game", "Back"};
+    int option_count = 3;
+
+    // Draw title
+    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
+
+    // Draw options
+    for (int i = 0; i < option_count; i++)
+    {
+        int is_selected = (i == selected_index);
+        int y = ui->h / 2 + i * 40;
+        text_sdl_draw_centered(ui->text, ui->ren, options[i], ui->w / 2, y, 1.0f,
+                               is_selected ? 255 : 180,
+                               is_selected ? 255 : 180,
+                               is_selected ? 0 : 180);
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_multiplayer_online_menu(UiSdl *ui, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+            if (key == SDLK_ESCAPE)
+                return UI_MENU_BACK;
+            if (key == SDLK_UP || key == SDLK_w)
+                return UI_MENU_UP;
+            if (key == SDLK_DOWN || key == SDLK_s)
+                return UI_MENU_DOWN;
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+                return UI_MENU_SELECT;
+        }
+    }
+    return UI_MENU_NONE;
+}
+
+void ui_sdl_render_host_setup(UiSdl *ui, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    const char *title = "Host Game";
+    const char *prompt = "Private Game?";
+    const char *options[] = {"Yes", "No"};
+    int option_count = 2;
+
+    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
+    text_sdl_draw_centered(ui->text, ui->ren, prompt, ui->w / 2, ui->h / 3, 1.0f, 200, 200, 200);
+
+    for (int i = 0; i < option_count; i++)
+    {
+        int is_selected = (i == selected_index);
+        int y = ui->h / 2 + i * 40;
+        text_sdl_draw_centered(ui->text, ui->ren, options[i], ui->w / 2, y, 1.0f,
+                               is_selected ? 255 : 180,
+                               is_selected ? 255 : 180,
+                               is_selected ? 0 : 180);
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_host_setup(UiSdl *ui, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+            if (key == SDLK_ESCAPE)
+                return UI_MENU_BACK;
+            if (key == SDLK_UP || key == SDLK_w)
+                return UI_MENU_UP;
+            if (key == SDLK_DOWN || key == SDLK_s)
+                return UI_MENU_DOWN;
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+                return UI_MENU_SELECT;
+        }
+    }
+    return UI_MENU_NONE;
+}
+
+int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size)
+{
+    // Simple text input for session ID (6 characters)
+    SDL_Event e;
+    char buffer[8] = {0};
+    int cursor = 0;
+    int done = 0;
+    int canceled = 0;
+
+    SDL_StartTextInput();
+
+    while (!done)
+    {
+        while (SDL_PollEvent(&e))
+        {
+            if (e.type == SDL_QUIT)
+            {
+                canceled = 1;
+                done = 1;
+            }
+            else if (e.type == SDL_KEYDOWN)
+            {
+                if (e.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    canceled = 1;
+                    done = 1;
+                }
+                else if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER)
+                {
+                    if (cursor == 6) // Session ID must be 6 characters
+                    {
+                        done = 1;
+                    }
+                }
+                else if (e.key.keysym.sym == SDLK_BACKSPACE && cursor > 0)
+                {
+                    cursor--;
+                    buffer[cursor] = '\0';
+                }
+            }
+            else if (e.type == SDL_TEXTINPUT)
+            {
+                char c = e.text.text[0];
+                if (cursor < 6 && ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')))
+                {
+                    buffer[cursor++] = c;
+                    buffer[cursor] = '\0';
+                }
+            }
+        }
+
+        // Render
+        SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+        SDL_RenderClear(ui->ren);
+
+        text_sdl_draw_centered(ui->text, ui->ren, "Join Game", ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
+        text_sdl_draw_centered(ui->text, ui->ren, "Enter Session ID (6 characters):", ui->w / 2, ui->h / 3, 1.0f, 200, 200, 200);
+
+        char display[32];
+        snprintf(display, sizeof(display), "> %s_", buffer);
+        text_sdl_draw_centered(ui->text, ui->ren, display, ui->w / 2, ui->h / 2, 1.2f, 255, 255, 0);
+
+        text_sdl_draw_centered(ui->text, ui->ren, "Press ENTER when done, ESC to cancel", ui->w / 2, ui->h * 3 / 4, 0.8f, 150, 150, 150);
+
+        SDL_RenderPresent(ui->ren);
+        SDL_Delay(16);
+    }
+
+    SDL_StopTextInput();
+
+    if (canceled)
+        return 0;
+
+    strncpy(out_session_id, buffer, out_size - 1);
+    out_session_id[out_size - 1] = '\0';
+    return 1;
+}
+
+void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    const char *title = ctx->game->is_host ? "Hosting Lobby" : "Joined Lobby";
+    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, 60, 1.5f, 255, 255, 255);
+
+    // Show session ID
+    char session_text[64];
+    snprintf(session_text, sizeof(session_text), "Session ID: %s", ctx->game->session_id);
+    text_sdl_draw_centered(ui->text, ui->ren, session_text, ui->w / 2, 120, 1.2f, 255, 255, 0);
+
+    // Show player list
+    int y = 200;
+    const PlayerColor *colors = (const PlayerColor *)PLAYER_COLORS;
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (ctx->game->players[i].joined)
+        {
+            char player_text[64];
+            snprintf(player_text, sizeof(player_text), "Player %d: Ready", i + 1);
+            text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 100, y, 1.0f,
+                          colors[i].r, colors[i].g, colors[i].b);
+            y += 30;
+        }
+    }
+
+    const char *hint = ctx->game->is_host ? "Press SPACE to start game" : "Waiting for host to start...";
+    text_sdl_draw_centered(ui->text, ui->ren, hint, ui->w / 2, ui->h - 100, 0.9f, 150, 150, 150);
+    text_sdl_draw_centered(ui->text, ui->ren, "Press ESC to leave", ui->w / 2, ui->h - 60, 0.8f, 150, 150, 150);
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            if (e.key.keysym.sym == SDLK_ESCAPE)
+                return UI_MENU_BACK;
+            if (e.key.keysym.sym == SDLK_SPACE)
+                return UI_MENU_SELECT; // Start game
+        }
+    }
+    return UI_MENU_NONE;
+}
+
+void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *ctx, int countdown)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    char countdown_text[32];
+    snprintf(countdown_text, sizeof(countdown_text), "%d", countdown);
+    text_sdl_draw_centered(ui->text, ui->ren, countdown_text, ui->w / 2, ui->h / 2, 3.0f, 255, 255, 0);
+
+    SDL_RenderPresent(ui->ren);
+}
+
+void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    const MultiplayerGame_s *mg = ctx->game;
+
+    // Simple placeholder rendering (will be improved later)
+    text_sdl_draw_centered(ui->text, ui->ren, "Online Game In Progress", ui->w / 2, ui->h / 2, 1.0f, 255, 255, 255);
+
+    char players_text[64];
+    snprintf(players_text, sizeof(players_text), "Active Players: %d", mg->active_players);
+    text_sdl_draw_centered(ui->text, ui->ren, players_text, ui->w / 2, ui->h / 2 + 40, 0.8f, 200, 200, 200);
+
+    SDL_RenderPresent(ui->ren);
+}
+
+Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return DIR_UP; // Dummy
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+
+            // Use Player 1's keybindings
+            int action = settings_find_action(settings, 0, key);
+            if (action == SETTING_ACTION_UP)
+                return DIR_UP;
+            if (action == SETTING_ACTION_DOWN)
+                return DIR_DOWN;
+            if (action == SETTING_ACTION_LEFT)
+                return DIR_LEFT;
+            if (action == SETTING_ACTION_RIGHT)
+                return DIR_RIGHT;
+        }
+    }
+    return -1; // No input
+}
+
+void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ctx)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    text_sdl_draw_centered(ui->text, ui->ren, "GAME OVER", ui->w / 2, ui->h / 4, 2.0f, 255, 0, 0);
+
+    // Show final standings
+    int y = ui->h / 3 + 40;
+    const PlayerColor *colors = (const PlayerColor *)PLAYER_COLORS;
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (ctx->game->players[i].joined)
+        {
+            char player_text[128];
+            snprintf(player_text, sizeof(player_text), "Player %d: Score %d, Combo Best %d",
+                     i + 1, ctx->game->players[i].score, ctx->game->players[i].combo_best);
+            text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 200, y, 0.9f,
+                          colors[i].r, colors[i].g, colors[i].b);
+            y += 30;
+        }
+    }
+
+    text_sdl_draw_centered(ui->text, ui->ren, "Press any key to continue", ui->w / 2, ui->h - 80, 0.8f, 150, 150, 150);
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            return UI_MENU_SELECT; // Any key continues
+        }
+    }
     return UI_MENU_NONE;
 }
