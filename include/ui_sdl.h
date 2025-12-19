@@ -32,7 +32,8 @@ typedef enum {
     UI_MENU_LEFT,
     UI_MENU_RIGHT,
     UI_MENU_SELECT,
-    UI_MENU_BACK
+    UI_MENU_BACK,
+    UI_MENU_USE
 } UiMenuAction;
 void ui_sdl_render_menu(UiSdl *ui, const Settings *settings, int selected_index);
 UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Settings *settings, int *out_quit);
@@ -51,28 +52,10 @@ void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_na
 UiSdl *ui_sdl_create(const char *title, int window_w, int window_h);
 void ui_sdl_destroy(UiSdl *ui);
 void ui_sdl_render_options(UiSdl *ui);
-void ui_sdl_render_multiplayer_placeholder(UiSdl *ui);
-
-// Multiplayer menu
-void ui_sdl_render_multiplayer_menu(UiSdl *ui, const Settings *settings, int selected_index);
-UiMenuAction ui_sdl_poll_multiplayer_menu(UiSdl *ui, const Settings *settings, int *out_quit);
-
-// Multiplayer placeholders
-void ui_sdl_render_multiplayer_local_placeholder(UiSdl *ui);
-void ui_sdl_render_multiplayer_online_placeholder(UiSdl *ui);
 
 // Forward declaration of MultiplayerGame from multiplayer_game.h
 // Include multiplayer_game.h in your source file to use these functions
 typedef struct MultiplayerGame_s MultiplayerGame_s;
-
-// Multiplayer lobby, countdown, and gameplay
-void ui_sdl_render_multiplayer_lobby(UiSdl *ui, const Settings *settings, const MultiplayerGame_s *mg);
-int ui_sdl_poll_multiplayer_lobby(UiSdl *ui, const Settings *settings, int *out_quit, int *players_pressed, int *start_pressed);
-
-void ui_sdl_render_multiplayer_countdown(UiSdl *ui, const MultiplayerGame_s *mg, int countdown);
-
-void ui_sdl_render_multiplayer_game(UiSdl *ui, const MultiplayerGame_s *mg);
-int ui_sdl_poll_multiplayer_game(UiSdl *ui, const Settings *settings, MultiplayerGame_s *mg);
 
 int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction *out_dir, int *out_pause);
 
@@ -124,7 +107,7 @@ int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size);
 
 // Online lobby (Waiting for players)
 void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx);
-UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, int *out_quit);
+UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Online countdown (3-2-1 countdown)
 void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *ctx, int countdown);

@@ -18,12 +18,15 @@
 
 #define BOARD_WIDTH 20
 #define BOARD_HEIGHT 20
+#define MULTIPLAYER_BOARD_WIDTH 40
+#define MULTIPLAYER_BOARD_HEIGHT 40
 #define TICK_MS 95
 #define PAUSE_MENU_COUNT 3
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 640
 #define MENU_FRAME_DELAY_MS 16 // ~60 FPS for menus
 #define GAME_FRAME_DELAY_MS 1 // Minimal delay for gameplay
+#define SERVERHOST "localhost" // localhost/mpapi.se
 
 // Speed curve parameters
 #define SPEED_START_MS 95.0f      // Starting tick time
@@ -128,6 +131,7 @@ typedef struct
     Game *game;                   // Game state
     MultiplayerGame_s *mp_game;   // Multiplayer game state
     OnlineMultiplayerContext *online_ctx; // Online multiplayer context
+    mpapi *mpapi_inst;            // MPAPI instance
     InputBuffer *input;           // Input buffer for gameplay
     char *player_name;            // Current player name
     int *paused;                  // Whether game is paused
@@ -136,6 +140,7 @@ typedef struct
     int *game_over_selected;      // Game over menu cursor position (0-1)
     unsigned int *last_tick;      // Last game update tick (ms)
     unsigned int *countdown_start; // Countdown start time (ms)
+    unsigned int *gameover_start;  // Game over screen start time (ms)
     int *pending_save_this_round; // Whether score should be saved on game over
     int debug_mode;               // Debug mode flag (shows game speed)
 } AppContext;
@@ -429,23 +434,44 @@ static void handle_sound_settings_state(AppContext *ctx)
  */
 static void handle_multiplayer_online_menu_state(AppContext *ctx)
 {
-    // Poll for Host/Join selection
-    // UI function will be added later: ui_sdl_poll_multiplayer_online_menu()
-    // For now, stub that goes back to main menu on ESC
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_multiplayer_online_menu(ctx->ui, &quit);
+    if (quit)
     {
-        if (e.type == SDL_QUIT)
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected - 1 + 3) % 3;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected + 1) % 3;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        switch (*ctx->multiplayer_menu_selected)
         {
-            *ctx->state = APP_QUIT;
-            return;
-        }
-        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
-        {
+        case 0: // Host Game
+            *ctx->state = APP_MULTIPLAYER_HOST_SETUP;
+            *ctx->multiplayer_menu_selected = 0; // Reset for host setup menu
+            break;
+        case 1: // Join Game
+            *ctx->state = APP_MULTIPLAYER_SESSION_INPUT;
+            break;
+        case 2: // Back
             *ctx->state = APP_MENU;
+            break;
         }
     }
-    // ui_sdl_render_multiplayer_online_menu(ctx->ui, selected);
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_MENU;
+    }
+
+    ui_sdl_render_multiplayer_online_menu(ctx->ui, *ctx->multiplayer_menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -454,22 +480,43 @@ static void handle_multiplayer_online_menu_state(AppContext *ctx)
  */
 static void handle_multiplayer_host_setup_state(AppContext *ctx)
 {
-    // Poll for Private yes/no selection
-    // UI function will be added later: ui_sdl_poll_host_setup()
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_host_setup(ctx->ui, &quit);
+    if (quit)
     {
-        if (e.type == SDL_QUIT)
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected - 1 + 2) % 2;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected + 1) % 2;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        int is_private = (*ctx->multiplayer_menu_selected == 0) ? 1 : 0;
+
+        // Initialize and host the game
+        if (online_multiplayer_host(ctx->online_ctx, is_private, MULTIPLAYER_BOARD_WIDTH, MULTIPLAYER_BOARD_HEIGHT) == MPAPI_OK)
         {
-            *ctx->state = APP_QUIT;
-            return;
+            *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
         }
-        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
+        else
         {
+            // Failed to host, go back
             *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
         }
     }
-    // ui_sdl_render_host_setup(ctx->ui, selected);
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
+    }
+
+    ui_sdl_render_host_setup(ctx->ui, *ctx->multiplayer_menu_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -478,23 +525,55 @@ static void handle_multiplayer_host_setup_state(AppContext *ctx)
  */
 static void handle_multiplayer_session_input_state(AppContext *ctx)
 {
-    // Get session ID input from user
-    // UI function will be added later: ui_sdl_get_session_id()
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
+    char session_id[8];
+    if (ui_sdl_get_session_id(ctx->ui, session_id, sizeof(session_id)))
     {
-        if (e.type == SDL_QUIT)
+        // User entered a session ID
+        if (online_multiplayer_join(ctx->online_ctx, session_id, MULTIPLAYER_BOARD_WIDTH, MULTIPLAYER_BOARD_HEIGHT) == MPAPI_OK)
         {
-            *ctx->state = APP_QUIT;
-            return;
+            *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
         }
-        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
+        else
         {
+            // Failed to join - check if we have an error message to display
+            if (ctx->online_ctx->connection_lost)
+            {
+                // Display error message
+                SDL_SetRenderDrawColor(ctx->ui->ren, 0, 0, 0, 255);
+                SDL_RenderClear(ctx->ui->ren);
+                text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 - 40, "Failed to Join");
+                text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 + 10, ctx->online_ctx->error_message);
+                text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 + 60, "Press any key to continue");
+                SDL_RenderPresent(ctx->ui->ren);
+
+                // Wait for keypress
+                SDL_Event e;
+                int waiting = 1;
+                while (waiting)
+                {
+                    while (SDL_PollEvent(&e))
+                    {
+                        if (e.type == SDL_QUIT || e.type == SDL_KEYDOWN)
+                        {
+                            waiting = 0;
+                        }
+                    }
+                    SDL_Delay(16);
+                }
+
+                // Reset connection lost flag
+                ctx->online_ctx->connection_lost = 0;
+            }
+
+            // Go back to menu
             *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
         }
     }
-    // ui_sdl_render_session_input(ctx->ui, session_id);
-    SDL_Delay(MENU_FRAME_DELAY_MS);
+    else
+    {
+        // User canceled
+        *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
+    }
 }
 
 /**
@@ -502,23 +581,79 @@ static void handle_multiplayer_session_input_state(AppContext *ctx)
  */
 static void handle_multiplayer_online_lobby_state(AppContext *ctx)
 {
-    // Display lobby with session ID and player list
-    // UI function will be added later: ui_sdl_poll_online_lobby()
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_online_lobby(ctx->ui, ctx->settings, &quit);
+    if (quit)
     {
-        if (e.type == SDL_QUIT)
-        {
-            *ctx->state = APP_QUIT;
-            return;
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    // Check if game started (for clients receiving start command from host)
+    if (ctx->online_ctx->state == ONLINE_STATE_COUNTDOWN)
+    {
+        *ctx->countdown_start = SDL_GetTicks();
+        *ctx->state = APP_MULTIPLAYER_ONLINE_COUNTDOWN;
+        return;
+    }
+
+    if (action == UI_MENU_BACK)
+    {
+        // Leave lobby - send disconnect notification and cleanup
+        printf("DEBUG: Player leaving lobby, sending disconnect notification\n");
+        fflush(stdout);
+
+        // Send a disconnect notification via game message
+        if (ctx->mpapi_inst) {
+            json_t *disconnect_msg = json_object();
+            json_object_set_new(disconnect_msg, "command", json_string("player_disconnect"));
+            mpapi_game(ctx->mpapi_inst, disconnect_msg, NULL);
+            json_decref(disconnect_msg);
         }
-        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)
+
+        // Give time for message to send before destroying
+        SDL_Delay(100);
+
+        if (ctx->online_ctx)
         {
-            // Leave lobby
-            *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
+            online_multiplayer_destroy(ctx->online_ctx);
+            ctx->online_ctx = NULL;
+        }
+        if (ctx->mpapi_inst)
+        {
+            mpapi_destroy(ctx->mpapi_inst);
+            ctx->mpapi_inst = NULL;
+        }
+
+        // Recreate for next session
+        ctx->online_ctx = online_multiplayer_create();
+        ctx->mpapi_inst = mpapi_create(SERVERHOST, 9001, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+        if (ctx->online_ctx && ctx->mpapi_inst)
+        {
+            ctx->online_ctx->api = ctx->mpapi_inst;
+            ctx->online_ctx->game = ctx->mp_game;
+        }
+
+        *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
+    }
+    else if (action == UI_MENU_USE)
+    {
+        // Player pressed USE key to toggle ready status
+        online_multiplayer_toggle_ready(ctx->online_ctx);
+    }
+    else if (action == UI_MENU_SELECT && ctx->online_ctx->game->is_host)
+    {
+        // Host pressed ENTER to start game - only allowed if all players are ready
+        if (online_multiplayer_all_players_ready(ctx->online_ctx))
+        {
+            *ctx->current_tick_ms = TICK_MS; // Reset to default speed for multiplayer
+            online_multiplayer_start_game(ctx->online_ctx);
+            *ctx->countdown_start = SDL_GetTicks();
+            *ctx->state = APP_MULTIPLAYER_ONLINE_COUNTDOWN;
         }
     }
-    // ui_sdl_render_online_lobby(ctx->ui, ctx->online_ctx);
+
+    ui_sdl_render_online_lobby(ctx->ui, ctx->online_ctx);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -534,12 +669,13 @@ static void handle_multiplayer_online_countdown_state(AppContext *ctx)
     if (countdown < 0)
     {
         // Start game
+        ctx->online_ctx->state = ONLINE_STATE_PLAYING;
         *ctx->state = APP_MULTIPLAYER_ONLINE_GAME;
         *ctx->last_tick = SDL_GetTicks();
         return;
     }
 
-    // ui_sdl_render_online_countdown(ctx->ui, ctx->online_ctx, countdown);
+    ui_sdl_render_online_countdown(ctx->ui, ctx->online_ctx, countdown);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -548,15 +684,42 @@ static void handle_multiplayer_online_countdown_state(AppContext *ctx)
  */
 static void handle_multiplayer_online_game_state(AppContext *ctx)
 {
-    // Poll for local player input
-    // UI function will be added later: ui_sdl_poll_online_game_input()
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
+    int quit = 0;
+    Direction input_dir = ui_sdl_poll_online_game_input(ctx->ui, ctx->settings, &quit);
+    if (quit)
     {
-        if (e.type == SDL_QUIT)
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    // Validate and send input for client
+    if (input_dir != -1 && !ctx->online_ctx->game->is_host)
+    {
+        int local_idx = ctx->online_ctx->game->local_player_index;
+        if (local_idx >= 0 && local_idx < MAX_PLAYERS)
         {
-            *ctx->state = APP_QUIT;
-            return;
+            // Validate input locally using the same logic as singleplayer
+            Direction current_dir = ctx->online_ctx->game->players[local_idx].snake.dir;
+
+            // Check if buffer has a pending direction
+            Direction last_dir = current_dir;
+            if (ctx->online_ctx->has_pending_input) {
+                last_dir = ctx->online_ctx->pending_input;
+            }
+
+            // Validate: not same, not opposite
+            int is_opposite = (last_dir == DIR_UP && input_dir == DIR_DOWN) ||
+                             (last_dir == DIR_DOWN && input_dir == DIR_UP) ||
+                             (last_dir == DIR_LEFT && input_dir == DIR_RIGHT) ||
+                             (last_dir == DIR_RIGHT && input_dir == DIR_LEFT);
+
+            if (input_dir != last_dir && !is_opposite)
+            {
+                // Valid input - store as pending and send to host
+                ctx->online_ctx->pending_input = input_dir;
+                ctx->online_ctx->has_pending_input = 1;
+                online_multiplayer_client_send_input(ctx->online_ctx, input_dir);
+            }
         }
     }
 
@@ -565,6 +728,18 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
     // Host updates game logic
     if (ctx->online_ctx->game->is_host)
     {
+        // Process host's own input using input buffer (same as singleplayer)
+        if (input_dir != -1)
+        {
+            int local_idx = ctx->online_ctx->game->local_player_index;
+            if (local_idx >= 0 && local_idx < MAX_PLAYERS)
+            {
+                MultiplayerPlayer *local_player = &ctx->online_ctx->game->players[local_idx];
+                // Use the input buffer (same as singleplayer!)
+                input_buffer_push(&local_player->input, input_dir, local_player->snake.dir);
+            }
+        }
+
         if (current_time - *ctx->last_tick >= *ctx->current_tick_ms)
         {
             online_multiplayer_host_update(ctx->online_ctx, current_time);
@@ -573,37 +748,97 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
             // Check game over
             if (multiplayer_game_is_over(ctx->online_ctx->game))
             {
+                *ctx->gameover_start = (unsigned int)SDL_GetTicks();
                 *ctx->state = APP_MULTIPLAYER_ONLINE_GAMEOVER;
                 return;
             }
         }
     }
 
-    // ui_sdl_render_online_game(ctx->ui, ctx->online_ctx);
+    // Play SFX for all players (detect state changes client-side)
+    if (ctx->audio)
+    {
+        static int prev_scores[MAX_PLAYERS] = {0, 0, 0, 0};
+        static int prev_snake_lengths[MAX_PLAYERS] = {0, 0, 0, 0};
+
+        for (int i = 0; i < MAX_PLAYERS; i++)
+        {
+            MultiplayerPlayer *p = &ctx->online_ctx->game->players[i];
+
+            if (!p->joined) {
+                prev_scores[i] = 0;
+                prev_snake_lengths[i] = 0;
+                continue;
+            }
+
+            // Detect food eaten: score increased
+            if (p->score > prev_scores[i])
+            {
+                int tier = game_get_combo_tier(p->combo_count);
+                if (tier > 0)
+                {
+                    char sfx_name[32];
+                    snprintf(sfx_name, sizeof(sfx_name), "combo%d", tier);
+                    audio_sdl_play_sound(ctx->audio, sfx_name);
+                }
+            }
+
+            // Detect death animation: snake losing segments while dying
+            if (p->death_state == GAME_DYING && p->snake.length < prev_snake_lengths[i])
+            {
+                audio_sdl_play_sound(ctx->audio, "explosion");
+            }
+
+            // Update previous states
+            prev_scores[i] = p->score;
+            prev_snake_lengths[i] = p->snake.length;
+        }
+    }
+
+    // Client: Check if game over was received from host
+    if (!ctx->online_ctx->game->is_host)
+    {
+        if (ctx->online_ctx->state == ONLINE_STATE_GAME_OVER)
+        {
+            printf("DEBUG: Client detected ONLINE_STATE_GAME_OVER, transitioning to APP_MULTIPLAYER_ONLINE_GAMEOVER\n");
+            fflush(stdout);
+            *ctx->gameover_start = (unsigned int)SDL_GetTicks();
+            *ctx->state = APP_MULTIPLAYER_ONLINE_GAMEOVER;
+            return;
+        }
+    }
+
+    ui_sdl_render_online_game(ctx->ui, ctx->online_ctx);
     SDL_Delay(GAME_FRAME_DELAY_MS);
 }
 
 /**
  * Handle online game over - Show final standings.
+ * Auto-returns to lobby after 3 seconds.
  */
 static void handle_multiplayer_online_gameover_state(AppContext *ctx)
 {
-    // Show final standings
-    // UI function will be added later: ui_sdl_render_online_gameover()
-    SDL_Event e;
-    while (SDL_PollEvent(&e))
+    int quit = 0;
+    ui_sdl_poll_online_gameover(ctx->ui, &quit);
+    if (quit)
     {
-        if (e.type == SDL_QUIT)
-        {
-            *ctx->state = APP_QUIT;
-            return;
-        }
-        if (e.type == SDL_KEYDOWN)
-        {
-            *ctx->state = APP_MENU;
-        }
+        *ctx->state = APP_QUIT;
+        return;
     }
-    // ui_sdl_render_online_gameover(ctx->ui, ctx->online_ctx);
+
+    // Check if 3 seconds have passed (3000ms)
+    unsigned int current_time = (unsigned int)SDL_GetTicks();
+    unsigned int elapsed = current_time - *ctx->gameover_start;
+
+    if (elapsed >= 3000)
+    {
+        // Return to online lobby
+        online_multiplayer_reset_ready_states(ctx->online_ctx);
+        ctx->online_ctx->state = ONLINE_STATE_LOBBY;
+        *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
+    }
+
+    ui_sdl_render_online_gameover(ctx->ui, ctx->online_ctx);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -965,13 +1200,13 @@ int main(int argc, char *argv[])
 
             // Load combo sound effects (7 tiers)
             const char *combo_files[] = {
-                "assets/audio/combo1.wav",
-                "assets/audio/combo2.wav",
-                "assets/audio/combo3.wav",
-                "assets/audio/combo4.wav",
-                "assets/audio/combo5.wav",
-                "assets/audio/combo6.wav",
-                "assets/audio/combo7.wav"
+                "assets/audio/Combo1.wav",
+                "assets/audio/Combo2.wav",
+                "assets/audio/Combo3.wav",
+                "assets/audio/Combo4.wav",
+                "assets/audio/Combo5.wav",
+                "assets/audio/Combo6.wav",
+                "assets/audio/Combo7.wav"
             };
             for (int i = 0; i < 7; i++)
             {
@@ -1028,6 +1263,19 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to create online multiplayer context\n");
         return 1;
     }
+
+    // Initialize mpapi instance and connect to online context
+    // The identifier must be exactly 36 characters (UUID format)
+    mpapi *mpapi_instance = mpapi_create(SERVERHOST, 9001, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+    if (!mpapi_instance)
+    {
+        fprintf(stderr, "Failed to create mpapi instance\n");
+        online_multiplayer_destroy(online_ctx);
+        return 1;
+    }
+    online_ctx->api = mpapi_instance;
+    online_ctx->game = &mp_game;
+
     InputBuffer input;
     input_buffer_init(&input);
 
@@ -1042,6 +1290,7 @@ int main(int argc, char *argv[])
 
     unsigned int last_tick = 0;
     unsigned int countdown_start = 0;
+    unsigned int gameover_start = 0;
     int pending_save_this_round = 0;
 
     // Initialize context struct
@@ -1062,6 +1311,7 @@ int main(int argc, char *argv[])
         .game = &game,
         .mp_game = &mp_game,
         .online_ctx = online_ctx,
+        .mpapi_inst = mpapi_instance,
         .input = &input,
         .player_name = player_name,
         .paused = &paused,
@@ -1070,6 +1320,7 @@ int main(int argc, char *argv[])
         .game_over_selected = &game_over_selected,
         .last_tick = &last_tick,
         .countdown_start = &countdown_start,
+        .gameover_start = &gameover_start,
         .pending_save_this_round = &pending_save_this_round,
         .debug_mode = debug_mode};
 
@@ -1132,10 +1383,15 @@ int main(int argc, char *argv[])
     // Save settings before cleanup
     settings_save(&settings);
 
-    // Cleanup online multiplayer context
-    if (online_ctx)
+    // Cleanup online multiplayer context (use context pointers in case they were recreated)
+    if (ctx.online_ctx)
     {
-        online_multiplayer_destroy(online_ctx);
+        online_multiplayer_destroy(ctx.online_ctx);
+    }
+
+    if (ctx.mpapi_inst)
+    {
+        mpapi_destroy(ctx.mpapi_inst);
     }
 
     if (audio)

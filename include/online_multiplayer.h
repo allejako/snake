@@ -28,6 +28,7 @@ typedef struct {
     // Client-specific
     Direction pending_input;     // Client's next input direction
     int has_pending_input;       // 1 if input queued
+    char our_client_id[64];      // Our mpapi client ID (for identifying ourselves)
 } OnlineMultiplayerContext;
 
 // Lifecycle
@@ -40,12 +41,15 @@ void online_multiplayer_host_update(OnlineMultiplayerContext *ctx, unsigned int 
 void online_multiplayer_host_broadcast_state(OnlineMultiplayerContext *ctx);
 
 // Client operations
-int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id);
+int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int board_width, int board_height);
 void online_multiplayer_client_send_input(OnlineMultiplayerContext *ctx, Direction dir);
 
 // Common operations
 void online_multiplayer_start_game(OnlineMultiplayerContext *ctx);
 int online_multiplayer_get_local_player_index(OnlineMultiplayerContext *ctx);
+void online_multiplayer_toggle_ready(OnlineMultiplayerContext *ctx);
+int online_multiplayer_all_players_ready(OnlineMultiplayerContext *ctx);
+void online_multiplayer_reset_ready_states(OnlineMultiplayerContext *ctx);
 
 // JSON serialization
 json_t* online_multiplayer_serialize_state(MultiplayerGame_s *game);

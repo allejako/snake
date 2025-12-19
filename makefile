@@ -42,7 +42,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 # ---- Compilation: mpapi sources -> build/mpapi_*.o ----
 $(BUILD_DIR)/mpapi_%.o: $(MPAPI_DIR)/%.c | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200112L -I$(MPAPI_DIR) -c $< -o $@
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(MPAPI_DIR) -c $< -o $@
 
 # ---- Create directories if they don't exist ----
 $(BUILD_DIR):

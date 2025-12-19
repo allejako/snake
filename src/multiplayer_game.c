@@ -2,13 +2,14 @@
 #include "game.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // Starting positions for each player (in board coordinates)
 static const Vec2 START_POSITIONS[MAX_PLAYERS] = {
-    {2, 2},    // Player 1: top-left area
-    {18, 2},   // Player 2: top-right area
-    {2, 18},   // Player 3: bottom-left area
-    {18, 18}   // Player 4: bottom-right area
+    {5, 5},    // Player 1: top-left area
+    {34, 5},   // Player 2: top-right area
+    {5, 34},   // Player 3: bottom-left area
+    {34, 34}   // Player 4: bottom-right area
 };
 
 static const Direction START_DIRECTIONS[MAX_PLAYERS] = {
@@ -30,6 +31,18 @@ void multiplayer_game_init(MultiplayerGame_s *mg, int width, int height)
         mg->players[i].joined = 0;
         mg->players[i].alive = 0;
         mg->players[i].death_state = GAME_OVER;
+        mg->players[i].score = 0;
+        mg->players[i].lives = 0;
+        mg->players[i].fruits_eaten = 0;
+        mg->players[i].combo_count = 0;
+        mg->players[i].combo_expiry_time = 0;
+        mg->players[i].combo_best = 0;
+        mg->players[i].food_eaten_this_frame = 0;
+        mg->players[i].is_local_player = 0;
+        mg->players[i].client_id[0] = '\0';
+        mg->players[i].snake.length = 0;
+        mg->players[i].snake.dir = DIR_RIGHT;
+        mg->players[i].ready = 0;
         input_buffer_init(&mg->players[i].input);
     }
 }
@@ -190,10 +203,52 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
 
     // Second pass: Check collisions for all snakes (don't move yet)
     int has_collision[MAX_PLAYERS];
+
+    // DEBUG: Print alive players
+    static int debug_counter = 0;
+    if (debug_counter++ % 50 == 0) {  // Print every 50 ticks
+        printf("DEBUG: Alive players: ");
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            if (mg->players[i].alive) {
+                printf("P%d(len=%d) ", i, mg->players[i].snake.length);
+            }
+        }
+        printf("\n");
+        fflush(stdout);
+    }
+
+    // Initialize collision flags
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
         has_collision[i] = 0;
+    }
 
+    // Check head-to-head collisions FIRST (before other checks)
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (!mg->players[i].alive || mg->players[i].death_state != GAME_RUNNING)
+            continue;
+
+        for (int j = i + 1; j < MAX_PLAYERS; j++)
+        {
+            if (!mg->players[j].alive || mg->players[j].death_state != GAME_RUNNING)
+                continue;
+
+            if (vec2_equal(next_positions[i], next_positions[j]))
+            {
+                // Both snakes trying to move to same position - both die
+                has_collision[i] = 1;
+                has_collision[j] = 1;
+                printf("DEBUG: Head-to-head collision between P%d and P%d at (%d,%d)\n",
+                       i, j, next_positions[i].x, next_positions[i].y);
+                fflush(stdout);
+            }
+        }
+    }
+
+    // Now check other collisions for each player
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
         if (!mg->players[i].alive || mg->players[i].death_state != GAME_RUNNING)
             continue;
 
@@ -220,6 +275,8 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
                 if (snake_occupies_excluding_tail(snake, next))
                 {
                     has_collision[i] = 1;
+                    printf("DEBUG: Player %d collision with own body at (%d,%d)\n", i, next.x, next.y);
+                    fflush(stdout);
                     break;
                 }
             }
@@ -233,6 +290,8 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
                     if (snake_occupies(&mg->players[j].snake, next))
                     {
                         has_collision[i] = 1;
+                        printf("DEBUG: Player %d collision with player %d at (%d,%d) - other eating food\n", i, j, next.x, next.y);
+                        fflush(stdout);
                         break;
                     }
                 }
@@ -242,6 +301,8 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
                     if (snake_occupies_excluding_tail(&mg->players[j].snake, next))
                     {
                         has_collision[i] = 1;
+                        printf("DEBUG: Player %d collision with player %d at (%d,%d)\n", i, j, next.x, next.y);
+                        fflush(stdout);
                         break;
                     }
                 }
