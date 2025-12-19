@@ -5,7 +5,11 @@
 #define BOARD_BORDER_CELLS 2 // 1-cell border on each side
 #define LAYOUT_PADDING_CELLS 4
 #define DEFAULT_FONT_SIZE 18
-
+#define TOP_OFFSET 60 // Extra space at top for combo bar and UI
+#define BOTTOM_OFFSET 40 // Extra space at bottom
+#define COMBO_BAR_HEIGHT 20
+#define COMBO_TEXT_SPACING 5 // Space between text and bar
+#define COMBO_TEXT_CENTER_OFFSET 50 // Approximate offset for centering text
 static void compute_layout(UiSdl *ui, const Game *g, int *out_origin_x, int *out_origin_y)
 {
     // Draw a board with 1-cell border, but in pixels
@@ -27,11 +31,11 @@ static void compute_layout(UiSdl *ui, const Game *g, int *out_origin_x, int *out
     int board_px_h = board_cells_h * ui->cell;
 
     *out_origin_x = (ui->w - board_px_w) / 2;
-    *out_origin_y = (ui->h - board_px_h) / 2;
+    *out_origin_y = (ui->h - board_px_h - TOP_OFFSET - BOTTOM_OFFSET) / 2 + TOP_OFFSET;
     if (*out_origin_x < ui->pad)
         *out_origin_x = ui->pad;
-    if (*out_origin_y < ui->pad)
-        *out_origin_y = ui->pad;
+    if (*out_origin_y < ui->pad + TOP_OFFSET)
+        *out_origin_y = ui->pad + TOP_OFFSET;
 }
 
 static SDL_Rect cell_rect(UiSdl *ui, int origin_x, int origin_y, int cx, int cy)
@@ -250,32 +254,28 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
         {
             unsigned int now = (unsigned int)SDL_GetTicks();
 
-            // Display combo text
-            char combo_text[32];
-            snprintf(combo_text, sizeof(combo_text), "COMBO x%d", g->combo_count);
-            int combo_x = ox + (g->board.width + 2) * ui->cell + 20;
-            int combo_y = oy + 10;
-            text_draw(ui->ren, &ui->text, combo_x, combo_y, combo_text);
+            // Calculate bar width to match board + border size
+            int bar_width = (g->board.width + 2) * ui->cell;
+            int board_center_x = ox + bar_width / 2;
 
-            // Draw combo timer bar
+            // Position the bar centered between top of screen and top of game border
+            int bar_x = ox;
+            int bar_y = (oy / 2) - (COMBO_BAR_HEIGHT / 2);
+
+            // Draw combo timer bar (if active)
             if (now < g->combo_expiry_time)
             {
                 float time_remaining = (float)(g->combo_expiry_time - now);
                 float time_total = (float)g->combo_window_ms;
                 float fill_ratio = time_remaining / time_total;
 
-                int bar_width = 120;
-                int bar_height = 8;
-                int bar_x = combo_x;
-                int bar_y = combo_y + 25;
-
                 // Background (empty bar)
-                SDL_Rect bg_rect = {bar_x, bar_y, bar_width, bar_height};
+                SDL_Rect bg_rect = {bar_x, bar_y, bar_width, COMBO_BAR_HEIGHT};
                 SDL_SetRenderDrawColor(ui->ren, 50, 50, 50, 255);
                 SDL_RenderFillRect(ui->ren, &bg_rect);
 
                 // Filled portion (timer)
-                SDL_Rect fill_rect = {bar_x, bar_y, (int)(bar_width * fill_ratio), bar_height};
+                SDL_Rect fill_rect = {bar_x, bar_y, (int)(bar_width * fill_ratio), COMBO_BAR_HEIGHT};
 
                 // Color based on tier
                 int tier = game_get_combo_tier(g->combo_count);
@@ -299,13 +299,22 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
                 // Border
                 SDL_SetRenderDrawColor(ui->ren, 200, 200, 200, 255);
                 SDL_RenderDrawRect(ui->ren, &bg_rect);
-
-                // Show multiplier below the bar
-                int multiplier = game_get_combo_multiplier(g->combo_count);
-                char mult_text[32];
-                snprintf(mult_text, sizeof(mult_text), "x%d Score!", multiplier);
-                text_draw(ui->ren, &ui->text, bar_x, bar_y + 15, mult_text);
             }
+
+            // Draw combo text centered above the bar
+            char combo_text[32];
+            snprintf(combo_text, sizeof(combo_text), "COMBO x%d", g->combo_count);
+            int combo_text_x = board_center_x - COMBO_TEXT_CENTER_OFFSET;
+            int combo_text_y = bar_y - DEFAULT_FONT_SIZE - COMBO_TEXT_SPACING;
+            text_draw(ui->ren, &ui->text, combo_text_x, combo_text_y, combo_text);
+
+            // Draw multiplier text centered below the bar
+            int multiplier = game_get_combo_multiplier(g->combo_count);
+            char mult_text[32];
+            snprintf(mult_text, sizeof(mult_text), "%dx Mult", multiplier);
+            int mult_text_x = board_center_x - COMBO_TEXT_CENTER_OFFSET;
+            int mult_text_y = bar_y + COMBO_BAR_HEIGHT + COMBO_TEXT_SPACING;
+            text_draw(ui->ren, &ui->text, mult_text_x, mult_text_y, mult_text);
         }
 
         text_draw(ui->ren, &ui->text, ox, oy + (g->board.height + 2) * ui->cell + 8,
@@ -607,22 +616,6 @@ void ui_sdl_render_options(UiSdl *ui)
         int cx = ui->w / 2;
         text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 - 20, "OPTIONS");
         text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 + 20, "(empty for now)");
-        text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "ESC = Back to menu");
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
-
-void ui_sdl_render_multiplayer_placeholder(UiSdl *ui)
-{
-    SDL_SetRenderDrawColor(ui->ren, 10, 10, 12, 255);
-    SDL_RenderClear(ui->ren);
-
-    if (ui->text_ok)
-    {
-        int cx = ui->w / 2;
-        text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 - 20, "MULTIPLAYER");
-        text_draw_center(ui->ren, &ui->text, cx, ui->h / 2 + 20, "(not implemented yet)");
         text_draw_center(ui->ren, &ui->text, cx, ui->h - 40, "ESC = Back to menu");
     }
 
