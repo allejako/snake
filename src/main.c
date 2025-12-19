@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "constants.h"
+#include "config.h"
 #include "game.h"
 #include "multiplayer_game.h"
 #include "online_multiplayer.h"
@@ -16,25 +18,9 @@
 #include "audio_sdl.h"
 #include <SDL2/SDL_ttf.h>
 
-#define BOARD_WIDTH 20
-#define BOARD_HEIGHT 20
-#define MULTIPLAYER_BOARD_WIDTH 40
-#define MULTIPLAYER_BOARD_HEIGHT 40
-#define TICK_MS 95
-#define PAUSE_MENU_COUNT 3
-#define WINDOW_WIDTH 960
-#define WINDOW_HEIGHT 640
-#define MENU_FRAME_DELAY_MS 16 // ~60 FPS for menus
-#define GAME_FRAME_DELAY_MS 1 // Minimal delay for gameplay
-#define SERVERHOST "localhost" // localhost/mpapi.se
+#define SERVERHOST "localhost" // localhost/mpapi.se - for easy switching
 
-// Speed curve parameters
-#define SPEED_START_MS 95.0f      // Starting tick time
-#define SPEED_FLOOR_MS 40.0f      // Minimum tick time (speed cap)
-#define SPEED_CURVE_K 0.08f       // Exponential decay rate (tuned for food count)
-
-// Combo system
-#define BASE_COMBO_WINDOW_TICKS 20     // Base window in ticks for tier 1
+// Legacy compatibility - will be replaced by config system
 #define COMBO_WINDOW_INCREASE_PER_TIER 5  // Additional ticks per tier level
 
 // Calculate tick time based on number of foods eaten (smooth exponential curve)
@@ -59,7 +45,6 @@ typedef enum
     APP_SCOREBOARD,
     APP_QUIT,
     APP_OPTIONS_MENU,
-    APP_KEYBINDS_PLAYER_SELECT,
     APP_KEYBINDS_BINDING,
     APP_SOUND_SETTINGS
 } AppState;
@@ -118,12 +103,12 @@ typedef struct
     UiSdl *ui;                    // UI system handle
     AudioSdl *audio;              // Audio system handle
     Settings *settings;           // Unified settings (profile, audio, keybindings)
+    GameConfig *config;           // Game configuration (runtime adjustable)
     Scoreboard *sb;               // Scoreboard for high scores
     AppState *state;              // Current application state
     int *menu_selected;           // Main menu cursor position
     int *options_menu_selected;   // Options menu cursor position
     int *multiplayer_menu_selected; // Multiplayer menu cursor position
-    int *keybind_player_selected; // Keybind player select cursor
     int *keybind_current_player;  // Currently configuring player (0-3)
     int *keybind_current_action;  // Currently configuring action (0-4)
     int *sound_selected;          // Sound settings cursor position
@@ -174,7 +159,7 @@ static void handle_menu_state(AppContext *ctx)
         {
         case MENU_SINGLEPLAYER:
             *ctx->current_tick_ms = TICK_MS;
-            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+            game_init(ctx->game, ctx->config->sp_board_width, ctx->config->sp_board_height);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
             ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Initialize combo window (tier 1)
             *ctx->paused = 0;
@@ -234,8 +219,8 @@ static void handle_options_menu_state(AppContext *ctx)
     {
         if (*ctx->options_menu_selected == OPTIONS_MENU_KEYBINDS)
         {
-            *ctx->state = APP_KEYBINDS_PLAYER_SELECT;
-            *ctx->keybind_player_selected = 0;
+            *ctx->keybind_current_action = 0;
+            *ctx->state = APP_KEYBINDS_BINDING;
         }
         else if (*ctx->options_menu_selected == OPTIONS_MENU_SOUND)
         {
@@ -253,50 +238,6 @@ static void handle_options_menu_state(AppContext *ctx)
     }
 
     ui_sdl_render_options_menu(ctx->ui, ctx->settings, *ctx->options_menu_selected);
-    SDL_Delay(MENU_FRAME_DELAY_MS);
-}
-
-/**
- * Handle keybind player selection state - choose which player to configure.
- * Supports up to 4 players. Updates state to begin binding keys for selected player.
- */
-static void handle_keybinds_player_select_state(AppContext *ctx)
-{
-    int quit = 0;
-    UiMenuAction action = ui_sdl_poll_keybind_player_select(ctx->ui, ctx->settings, &quit);
-    if (quit)
-    {
-        *ctx->state = APP_QUIT;
-        return;
-    }
-
-    if (action == UI_MENU_UP)
-    {
-        *ctx->keybind_player_selected = (*ctx->keybind_player_selected - 1 + KEYBIND_PLAYER_COUNT) % KEYBIND_PLAYER_COUNT;
-    }
-    else if (action == UI_MENU_DOWN)
-    {
-        *ctx->keybind_player_selected = (*ctx->keybind_player_selected + 1) % KEYBIND_PLAYER_COUNT;
-    }
-    else if (action == UI_MENU_SELECT)
-    {
-        if (*ctx->keybind_player_selected >= KEYBIND_PLAYER_1 && *ctx->keybind_player_selected <= KEYBIND_PLAYER_4)
-        {
-            *ctx->keybind_current_player = *ctx->keybind_player_selected;
-            *ctx->keybind_current_action = 0;
-            *ctx->state = APP_KEYBINDS_BINDING;
-        }
-        else if (*ctx->keybind_player_selected == KEYBIND_BACK)
-        {
-            *ctx->state = APP_OPTIONS_MENU;
-        }
-    }
-    else if (action == UI_MENU_BACK)
-    {
-        *ctx->state = APP_OPTIONS_MENU;
-    }
-
-    ui_sdl_render_keybind_player_select(ctx->ui, ctx->settings, *ctx->keybind_player_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -323,7 +264,7 @@ static void handle_keybinds_binding_state(AppContext *ctx)
         // User pressed ESC, don't save changes
         // Reload keybindings from file to discard changes
         settings_load(ctx->settings);
-        *ctx->state = APP_KEYBINDS_PLAYER_SELECT;
+        *ctx->state = APP_OPTIONS_MENU;
         return;
     }
 
@@ -342,7 +283,7 @@ static void handle_keybinds_binding_state(AppContext *ctx)
         {
             // All actions bound, save and return
             settings_save(ctx->settings);
-            *ctx->state = APP_KEYBINDS_PLAYER_SELECT;
+            *ctx->state = APP_OPTIONS_MENU;
             return;
         }
     }
@@ -501,7 +442,7 @@ static void handle_multiplayer_host_setup_state(AppContext *ctx)
         int is_private = (*ctx->multiplayer_menu_selected == 0) ? 1 : 0;
 
         // Initialize and host the game
-        if (online_multiplayer_host(ctx->online_ctx, is_private, MULTIPLAYER_BOARD_WIDTH, MULTIPLAYER_BOARD_HEIGHT) == MPAPI_OK)
+        if (online_multiplayer_host(ctx->online_ctx, is_private, ctx->config->mp_board_width, ctx->config->mp_board_height) == MPAPI_OK)
         {
             *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
         }
@@ -529,7 +470,7 @@ static void handle_multiplayer_session_input_state(AppContext *ctx)
     if (ui_sdl_get_session_id(ctx->ui, session_id, sizeof(session_id)))
     {
         // User entered a session ID
-        if (online_multiplayer_join(ctx->online_ctx, session_id, MULTIPLAYER_BOARD_WIDTH, MULTIPLAYER_BOARD_HEIGHT) == MPAPI_OK)
+        if (online_multiplayer_join(ctx->online_ctx, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height) == MPAPI_OK)
         {
             *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
         }
@@ -627,7 +568,8 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
 
         // Recreate for next session
         ctx->online_ctx = online_multiplayer_create();
-        ctx->mpapi_inst = mpapi_create(SERVERHOST, 9001, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+        ctx->mpapi_inst = mpapi_create(ctx->config->server_host, ctx->config->server_port, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+        
         if (ctx->online_ctx && ctx->mpapi_inst)
         {
             ctx->online_ctx->api = ctx->mpapi_inst;
@@ -878,7 +820,7 @@ static void handle_game_over_state(AppContext *ctx)
         {
             // Try again - restart game
             *ctx->current_tick_ms = TICK_MS; // Reset to normal speed
-            game_init(ctx->game, BOARD_WIDTH, BOARD_HEIGHT);
+            game_init(ctx->game, ctx->config->sp_board_width, ctx->config->sp_board_height);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
             ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Reset combo window (tier 1)
             *ctx->paused = 0;
@@ -1133,7 +1075,7 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
         {
-            printf("SnakeGPT - Snake Game\n");
+            printf("Snake - Snake Game\n");
             printf("Usage: %s [options]\n", argv[0]);
             printf("Options:\n");
             printf("  --no-audio, -na    Disable audio (useful for WSL2)\n");
@@ -1151,7 +1093,16 @@ int main(int argc, char *argv[])
 #endif
     }
 
-    UiSdl *ui = ui_sdl_create("Snake", WINDOW_WIDTH, WINDOW_HEIGHT);
+    // Load game configuration
+    GameConfig game_config;
+    if (config_load(&game_config, "data/game_config.ini") != 0)
+    {
+        fprintf(stderr, "Warning: Failed to load game config, using defaults\n");
+        config_init_defaults(&game_config);
+    }
+
+    // Create UI with configured window dimensions
+    UiSdl *ui = ui_sdl_create("Snake", game_config.window_width, game_config.window_height);
     if (!ui)
         return 1;
 
@@ -1249,7 +1200,6 @@ int main(int argc, char *argv[])
     int menu_selected = 0;
     int options_menu_selected = 0;
     int multiplayer_menu_selected = 0;
-    int keybind_player_selected = 0;
     int keybind_current_player = 0;
     int keybind_current_action = 0;
     int sound_selected = 0;
@@ -1266,7 +1216,7 @@ int main(int argc, char *argv[])
 
     // Initialize mpapi instance and connect to online context
     // The identifier must be exactly 36 characters (UUID format)
-    mpapi *mpapi_instance = mpapi_create(SERVERHOST, 9001, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+    mpapi *mpapi_instance = mpapi_create(game_config.server_host, game_config.server_port, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
     if (!mpapi_instance)
     {
         fprintf(stderr, "Failed to create mpapi instance\n");
@@ -1298,12 +1248,12 @@ int main(int argc, char *argv[])
         .ui = ui,
         .audio = audio,
         .settings = &settings,
+        .config = &game_config,
         .sb = &sb,
         .state = &state,
         .menu_selected = &menu_selected,
         .options_menu_selected = &options_menu_selected,
         .multiplayer_menu_selected = &multiplayer_menu_selected,
-        .keybind_player_selected = &keybind_player_selected,
         .keybind_current_player = &keybind_current_player,
         .keybind_current_action = &keybind_current_action,
         .sound_selected = &sound_selected,
@@ -1333,9 +1283,6 @@ int main(int argc, char *argv[])
             break;
         case APP_OPTIONS_MENU:
             handle_options_menu_state(&ctx);
-            break;
-        case APP_KEYBINDS_PLAYER_SELECT:
-            handle_keybinds_player_select_state(&ctx);
             break;
         case APP_KEYBINDS_BINDING:
             handle_keybinds_binding_state(&ctx);

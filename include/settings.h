@@ -4,7 +4,7 @@
 #include <SDL2/SDL.h>
 
 #define SETTINGS_MAX_PROFILE_NAME 32
-#define SETTINGS_MAX_PLAYERS 4
+#define SETTINGS_MAX_PLAYERS 1
 #define SETTINGS_ACTIONS_PER_PLAYER 5
 
 typedef enum {
