@@ -102,6 +102,17 @@ UiMenuAction ui_sdl_poll_multiplayer_online_menu(UiSdl *ui, int *out_quit);
 void ui_sdl_render_host_setup(UiSdl *ui, int selected_index);
 UiMenuAction ui_sdl_poll_host_setup(UiSdl *ui, int *out_quit);
 
+// Join select (Public vs Private join selection)
+void ui_sdl_render_join_select(UiSdl *ui, int selected_index);
+UiMenuAction ui_sdl_poll_join_select(UiSdl *ui, int *out_quit);
+
+// Lobby browser (Browse public lobbies)
+void ui_sdl_render_lobby_browser(UiSdl *ui, json_t *lobby_list, int selected_index);
+UiMenuAction ui_sdl_poll_lobby_browser(UiSdl *ui, int *out_quit);
+
+// Error display
+void ui_sdl_render_error(UiSdl *ui, const char *message);
+
 // Session input (Enter session ID for joining)
 int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size);
 

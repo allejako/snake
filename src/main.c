@@ -34,7 +34,9 @@ typedef enum
     APP_GAME_OVER,
     APP_MULTIPLAYER_ONLINE_MENU,      // Host vs Join selection
     APP_MULTIPLAYER_HOST_SETUP,       // Private yes/no selection
-    APP_MULTIPLAYER_SESSION_INPUT,    // Enter session ID for joining
+    APP_MULTIPLAYER_JOIN_SELECT,      // Public vs Private join selection
+    APP_MULTIPLAYER_LOBBY_BROWSER,    // Browse public lobbies
+    APP_MULTIPLAYER_SESSION_INPUT,    // Enter session ID for joining (private)
     APP_MULTIPLAYER_ONLINE_LOBBY,     // Online lobby (waiting for players)
     APP_MULTIPLAYER_ONLINE_COUNTDOWN, // 3-2-1 countdown before game starts
     APP_MULTIPLAYER_ONLINE_GAME,      // Online gameplay
@@ -397,7 +399,8 @@ static void handle_multiplayer_online_menu_state(AppContext *ctx)
             *ctx->multiplayer_menu_selected = 0; // Reset for host setup menu
             break;
         case 1: // Join Game
-            *ctx->state = APP_MULTIPLAYER_SESSION_INPUT;
+            *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
+            *ctx->multiplayer_menu_selected = 0; // Reset for join select menu
             break;
         case 2: // Back
             *ctx->state = APP_MENU;
@@ -455,6 +458,162 @@ static void handle_multiplayer_host_setup_state(AppContext *ctx)
     }
 
     ui_sdl_render_host_setup(ctx->ui, *ctx->multiplayer_menu_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle join select - Public vs Private join selection.
+ */
+static void handle_multiplayer_join_select_state(AppContext *ctx)
+{
+    int quit = 0;
+    UiMenuAction action = ui_sdl_poll_join_select(ctx->ui, &quit);
+    if (quit)
+    {
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected - 1 + 2) % 2;
+    }
+    else if (action == UI_MENU_DOWN)
+    {
+        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected + 1) % 2;
+    }
+    else if (action == UI_MENU_SELECT)
+    {
+        if (*ctx->multiplayer_menu_selected == 0)
+        {
+            // Public - go to lobby browser
+            *ctx->state = APP_MULTIPLAYER_LOBBY_BROWSER;
+            *ctx->multiplayer_menu_selected = 0; // Reset for lobby browser
+        }
+        else
+        {
+            // Private - go to session input
+            *ctx->state = APP_MULTIPLAYER_SESSION_INPUT;
+        }
+    }
+    else if (action == UI_MENU_BACK)
+    {
+        *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
+    }
+
+    ui_sdl_render_join_select(ctx->ui, *ctx->multiplayer_menu_selected);
+    SDL_Delay(MENU_FRAME_DELAY_MS);
+}
+
+/**
+ * Handle lobby browser - Browse and join public lobbies.
+ */
+static void handle_multiplayer_lobby_browser_state(AppContext *ctx)
+{
+    static json_t *cached_lobby_list = NULL;
+    static int selected_lobby = 0;
+    static int need_fetch = 1;
+
+    int quit = 0;
+
+    // Fetch lobby list only when entering state or refreshing
+    if (need_fetch)
+    {
+        if (cached_lobby_list)
+        {
+            json_decref(cached_lobby_list);
+            cached_lobby_list = NULL;
+        }
+
+        int rc = mpapi_list(ctx->online_ctx->api, &cached_lobby_list);
+
+        if (rc != MPAPI_OK || !cached_lobby_list)
+        {
+            // Failed to fetch lobbies, go back
+            need_fetch = 1;
+            selected_lobby = 0;
+            *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
+            ui_sdl_render_error(ctx->ui, "Failed to fetch lobby list");
+            SDL_Delay(2000);
+            return;
+        }
+
+        need_fetch = 0;
+        selected_lobby = 0;
+    }
+
+    size_t lobby_count = json_array_size(cached_lobby_list);
+
+    UiMenuAction action = ui_sdl_poll_lobby_browser(ctx->ui, &quit);
+    if (quit)
+    {
+        if (cached_lobby_list)
+        {
+            json_decref(cached_lobby_list);
+            cached_lobby_list = NULL;
+        }
+        need_fetch = 1;
+        *ctx->state = APP_QUIT;
+        return;
+    }
+
+    if (action == UI_MENU_UP && lobby_count > 0)
+    {
+        selected_lobby = (selected_lobby - 1 + (int)lobby_count) % (int)lobby_count;
+    }
+    else if (action == UI_MENU_DOWN && lobby_count > 0)
+    {
+        selected_lobby = (selected_lobby + 1) % (int)lobby_count;
+    }
+    else if (action == UI_MENU_SELECT && lobby_count > 0)
+    {
+        // Get selected lobby's session ID
+        json_t *lobby = json_array_get(cached_lobby_list, selected_lobby);
+        json_t *session_json = json_object_get(lobby, "session");
+
+        if (session_json && json_is_string(session_json))
+        {
+            const char *session_id = json_string_value(session_json);
+
+            // Join the selected lobby
+            if (online_multiplayer_join(ctx->online_ctx, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height) == MPAPI_OK)
+            {
+                json_decref(cached_lobby_list);
+                cached_lobby_list = NULL;
+                need_fetch = 1;
+                selected_lobby = 0;
+                *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
+                return;
+            }
+        }
+
+        // Failed to join
+        if (cached_lobby_list)
+        {
+            json_decref(cached_lobby_list);
+            cached_lobby_list = NULL;
+        }
+        need_fetch = 1;
+        selected_lobby = 0;
+        *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
+        ui_sdl_render_error(ctx->ui, "Failed to join lobby");
+        SDL_Delay(2000);
+        return;
+    }
+    else if (action == UI_MENU_BACK)
+    {
+        if (cached_lobby_list)
+        {
+            json_decref(cached_lobby_list);
+            cached_lobby_list = NULL;
+        }
+        need_fetch = 1;
+        selected_lobby = 0;
+        *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
+        return;
+    }
+
+    ui_sdl_render_lobby_browser(ctx->ui, cached_lobby_list, selected_lobby);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -1292,6 +1451,12 @@ int main(int argc, char *argv[])
             break;
         case APP_MULTIPLAYER_HOST_SETUP:
             handle_multiplayer_host_setup_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_JOIN_SELECT:
+            handle_multiplayer_join_select_state(&ctx);
+            break;
+        case APP_MULTIPLAYER_LOBBY_BROWSER:
+            handle_multiplayer_lobby_browser_state(&ctx);
             break;
         case APP_MULTIPLAYER_SESSION_INPUT:
             handle_multiplayer_session_input_state(&ctx);

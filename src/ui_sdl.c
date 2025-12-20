@@ -1323,6 +1323,155 @@ UiMenuAction ui_sdl_poll_host_setup(UiSdl *ui, int *out_quit)
     return UI_MENU_NONE;
 }
 
+void ui_sdl_render_join_select(UiSdl *ui, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    const char *title = "Join Game";
+    const char *prompt = "Join Type:";
+    const char *options[] = {"Public", "Private"};
+    int option_count = 2;
+
+    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
+    text_sdl_draw_centered(ui->text, ui->ren, prompt, ui->w / 2, ui->h / 3, 1.0f, 200, 200, 200);
+
+    for (int i = 0; i < option_count; i++)
+    {
+        int is_selected = (i == selected_index);
+        int y = ui->h / 2 + i * 40;
+
+        if (is_selected)
+        {
+            char indicator[128];
+            snprintf(indicator, sizeof(indicator), "> %s <", options[i]);
+            text_sdl_draw_centered(ui->text, ui->ren, indicator, ui->w / 2, y, 1.0f, 255, 255, 0);
+        }
+        else
+        {
+            text_sdl_draw_centered(ui->text, ui->ren, options[i], ui->w / 2, y, 1.0f, 180, 180, 180);
+        }
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_join_select(UiSdl *ui, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+            if (key == SDLK_ESCAPE)
+                return UI_MENU_BACK;
+            if (key == SDLK_UP || key == SDLK_w)
+                return UI_MENU_UP;
+            if (key == SDLK_DOWN || key == SDLK_s)
+                return UI_MENU_DOWN;
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+                return UI_MENU_SELECT;
+        }
+    }
+    return UI_MENU_NONE;
+}
+
+void ui_sdl_render_lobby_browser(UiSdl *ui, json_t *lobby_list, int selected_index)
+{
+    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    const char *title = "Public Lobbies";
+    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, 50, 1.5f, 255, 255, 255);
+
+    if (!lobby_list || json_array_size(lobby_list) == 0)
+    {
+        text_sdl_draw_centered(ui->text, ui->ren, "No public lobbies available", ui->w / 2, ui->h / 2, 1.0f, 180, 180, 180);
+        text_sdl_draw_centered(ui->text, ui->ren, "Press ESC to go back", ui->w / 2, ui->h / 2 + 40, 0.8f, 150, 150, 150);
+    }
+    else
+    {
+        size_t count = json_array_size(lobby_list);
+        int start_y = 120;
+
+        for (size_t i = 0; i < count && i < 10; i++)  // Show max 10 lobbies
+        {
+            json_t *lobby = json_array_get(lobby_list, i);
+            json_t *session_json = json_object_get(lobby, "session");
+            json_t *name_json = json_object_get(lobby, "name");
+            json_t *players_json = json_object_get(lobby, "players");
+
+            const char *session = json_is_string(session_json) ? json_string_value(session_json) : "???";
+            const char *name = json_is_string(name_json) ? json_string_value(name_json) : "Unknown";
+            int players = json_is_integer(players_json) ? json_integer_value(players_json) : 0;
+
+            char lobby_text[256];
+            snprintf(lobby_text, sizeof(lobby_text), "%s (%.6s) - %d players", name, session, players);
+
+            int is_selected = ((int)i == selected_index);
+            int y = start_y + (int)i * 35;
+
+            if (is_selected)
+            {
+                char indicator[300];
+                snprintf(indicator, sizeof(indicator), "> %s <", lobby_text);
+                text_sdl_draw_centered(ui->text, ui->ren, indicator, ui->w / 2, y, 0.9f, 255, 255, 0);
+            }
+            else
+            {
+                text_sdl_draw_centered(ui->text, ui->ren, lobby_text, ui->w / 2, y, 0.9f, 180, 180, 180);
+            }
+        }
+
+        text_sdl_draw_centered(ui->text, ui->ren, "ENTER to join | ESC to go back", ui->w / 2, ui->h - 50, 0.8f, 150, 150, 150);
+    }
+
+    SDL_RenderPresent(ui->ren);
+}
+
+UiMenuAction ui_sdl_poll_lobby_browser(UiSdl *ui, int *out_quit)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e))
+    {
+        if (e.type == SDL_QUIT)
+        {
+            *out_quit = 1;
+            return UI_MENU_NONE;
+        }
+        if (e.type == SDL_KEYDOWN)
+        {
+            SDL_Keycode key = e.key.keysym.sym;
+            if (key == SDLK_ESCAPE)
+                return UI_MENU_BACK;
+            if (key == SDLK_UP || key == SDLK_w)
+                return UI_MENU_UP;
+            if (key == SDLK_DOWN || key == SDLK_s)
+                return UI_MENU_DOWN;
+            if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+                return UI_MENU_SELECT;
+        }
+    }
+    return UI_MENU_NONE;
+}
+
+void ui_sdl_render_error(UiSdl *ui, const char *message)
+{
+    SDL_SetRenderDrawColor(ui->ren, 40, 0, 0, 255);
+    SDL_RenderClear(ui->ren);
+
+    text_sdl_draw_centered(ui->text, ui->ren, "Error", ui->w / 2, ui->h / 3, 1.5f, 255, 100, 100);
+    text_sdl_draw_centered(ui->text, ui->ren, message, ui->w / 2, ui->h / 2, 1.0f, 255, 200, 200);
+
+    SDL_RenderPresent(ui->ren);
+}
+
 int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size)
 {
     // Simple text input for session ID (6 characters)
