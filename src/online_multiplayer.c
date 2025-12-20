@@ -948,28 +948,24 @@ static json_t* serialize_player(MultiplayerPlayer *player)
     json_object_set_new(p, "alive", json_boolean(player->alive));
     json_object_set_new(p, "death_state", json_integer(player->death_state));
 
-    // Stats
-    json_object_set_new(p, "score", json_integer(player->score));
+    // Lives (needed for respawn sync)
     json_object_set_new(p, "lives", json_integer(player->lives));
-    json_object_set_new(p, "combo", json_integer(player->combo_count));
-    json_object_set_new(p, "combo_best", json_integer(player->combo_best));
-    json_object_set_new(p, "fruits_eaten", json_integer(player->fruits_eaten));
 
-    // Snake segments
+    // Food event flag (for client-side stat tracking) - sent as integer for compactness
+    json_object_set_new(p, "ate", json_integer(player->food_eaten_this_frame));
+
+    // Snake segments - COMPACT FORMAT: flat array [x1,y1,x2,y2,...]
     json_t *segments = json_array();
     for (int i = 0; i < player->snake.length; i++) {
-        json_t *seg = json_array();
-        json_array_append_new(seg, json_integer(player->snake.segments[i].x));
-        json_array_append_new(seg, json_integer(player->snake.segments[i].y));
-        json_array_append_new(segments, seg);
+        json_array_append_new(segments, json_integer(player->snake.segments[i].x));
+        json_array_append_new(segments, json_integer(player->snake.segments[i].y));
     }
     json_object_set_new(p, "segments", segments);
 
     // Direction
     json_object_set_new(p, "direction", json_integer(player->snake.dir));
 
-    // Network identity
-    json_object_set_new(p, "is_local", json_boolean(player->is_local_player));
+    // Network identity (client_id only, is_local is preserved locally)
     json_object_set_new(p, "client_id", json_string(player->client_id));
 
     // Lobby state
@@ -1024,26 +1020,47 @@ static void deserialize_player(MultiplayerPlayer *player, json_t *data)
     player->alive = json_is_true(json_object_get(data, "alive"));
     player->death_state = (GameState)json_integer_value(json_object_get(data, "death_state"));
 
-    player->score = (int)json_integer_value(json_object_get(data, "score"));
+    // Lives (synced from network)
     player->lives = (int)json_integer_value(json_object_get(data, "lives"));
-    player->combo_count = (int)json_integer_value(json_object_get(data, "combo"));
-    player->combo_best = (int)json_integer_value(json_object_get(data, "combo_best"));
-    player->fruits_eaten = (int)json_integer_value(json_object_get(data, "fruits_eaten"));
 
-    // Snake
+    // Food event flag - use this to update local stats
+    int ate_food = (int)json_integer_value(json_object_get(data, "ate"));
+
+    // Update local stats if food was eaten
+    if (ate_food && player->is_local_player) {
+        // Update combo system
+        if (player->combo_count > 0 && player->combo_expiry_time > 0) {
+            player->combo_count++;
+        } else {
+            player->combo_count = 1;
+        }
+
+        if (player->combo_count > player->combo_best) {
+            player->combo_best = player->combo_count;
+        }
+
+        // Calculate score with multiplier (same logic as host)
+        int multiplier = (player->combo_count >= 10) ? 4 :
+                        (player->combo_count >= 5) ? 3 :
+                        (player->combo_count >= 3) ? 2 : 1;
+        player->score += 10 * multiplier;
+        player->fruits_eaten++;
+        player->combo_expiry_time = 1;  // Reset combo timer
+    }
+
+    // Snake segments - COMPACT FORMAT: flat array [x1,y1,x2,y2,...]
     json_t *segments = json_object_get(data, "segments");
     if (json_is_array(segments)) {
+        size_t arr_len = json_array_size(segments);
         player->snake.length = 0;
-        size_t index;
-        json_t *seg;
-        json_array_foreach(segments, index, seg) {
-            if (player->snake.length < MAX_SNAKE_LEN && json_array_size(seg) == 2) {
-                player->snake.segments[player->snake.length].x =
-                    (int)json_integer_value(json_array_get(seg, 0));
-                player->snake.segments[player->snake.length].y =
-                    (int)json_integer_value(json_array_get(seg, 1));
-                player->snake.length++;
-            }
+
+        // Iterate in pairs (x, y)
+        for (size_t i = 0; i + 1 < arr_len && player->snake.length < MAX_SNAKE_LEN; i += 2) {
+            player->snake.segments[player->snake.length].x =
+                (int)json_integer_value(json_array_get(segments, i));
+            player->snake.segments[player->snake.length].y =
+                (int)json_integer_value(json_array_get(segments, i + 1));
+            player->snake.length++;
         }
     }
 
