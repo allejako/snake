@@ -172,7 +172,7 @@
 // =============================================================================
 // NETWORK CONSTANTS
 // =============================================================================
-#define DEFAULT_SERVER_HOST "localhost"
+#define DEFAULT_SERVER_HOST "kontoret.onvo.se" //kontoret.onvo.se/localhost
 #define DEFAULT_SERVER_PORT 9001
 #define NETWORK_TIMEOUT_MS 5000
 

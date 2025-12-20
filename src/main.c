@@ -1,5 +1,3 @@
-// Port == 9001, identifier == uuid
-
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
@@ -18,7 +16,6 @@
 #include "audio_sdl.h"
 #include <SDL2/SDL_ttf.h>
 
-#define SERVERHOST "localhost" // localhost/mpapi.se - for easy switching
 
 // Legacy compatibility - will be replaced by config system
 #define COMBO_WINDOW_INCREASE_PER_TIER 5  // Additional ticks per tier level
