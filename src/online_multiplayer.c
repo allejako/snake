@@ -769,6 +769,10 @@ static void handle_client_input(OnlineMultiplayerContext *ctx, const char *clien
     // Add to player's input buffer
     Direction current_dir = ctx->game->players[player_idx].snake.dir;
     input_buffer_push(&ctx->game->players[player_idx].input, dir, current_dir);
+
+    // Immediately broadcast current state to reduce perceived lag
+    // Client will see the current game state while waiting for next tick to process their input
+    online_multiplayer_host_broadcast_state(ctx);
 }
 
 static void handle_game_state_update(OnlineMultiplayerContext *ctx, json_t *data)

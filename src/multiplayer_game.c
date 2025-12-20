@@ -158,6 +158,12 @@ static void spawn_food_avoiding_snakes(MultiplayerGame_s *mg, Vec2 *out_food)
 
 void multiplayer_game_update(MultiplayerGame_s *mg)
 {
+    // Reset food eaten flags from previous frame
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        mg->players[i].food_eaten_this_frame = 0;
+    }
+
     // First pass: Calculate next positions and determine which snakes will eat food
     Vec2 next_positions[MAX_PLAYERS];
     int will_eat_food[MAX_PLAYERS];
