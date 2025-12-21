@@ -36,12 +36,12 @@ OnlineMultiplayerContext* online_multiplayer_create(void);
 void online_multiplayer_destroy(OnlineMultiplayerContext *ctx);
 
 // Host operations
-int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int board_width, int board_height);
+int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int board_width, int board_height, const char *player_name);
 void online_multiplayer_host_update(OnlineMultiplayerContext *ctx, unsigned int current_time);
 void online_multiplayer_host_broadcast_state(OnlineMultiplayerContext *ctx);
 
 // Client operations
-int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int board_width, int board_height);
+int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int board_width, int board_height, const char *player_name);
 void online_multiplayer_client_send_input(OnlineMultiplayerContext *ctx, Direction dir);
 
 // Common operations

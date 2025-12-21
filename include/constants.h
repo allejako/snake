@@ -16,7 +16,7 @@
 #define TICK_MS 95                   // Default game tick duration in milliseconds
 #define MENU_FRAME_DELAY_MS 16       // ~60 FPS for menus
 #define GAME_FRAME_DELAY_MS 1        // Minimal delay for gameplay
-#define GAMEOVER_DISPLAY_MS 3000     // How long to show game over screen
+#define GAMEOVER_DISPLAY_MS 2000     // How long to show game over screen
 
 // Speed curve parameters (singleplayer)
 #define SPEED_START_MS 95.0f         // Starting tick time
@@ -26,8 +26,8 @@
 // =============================================================================
 // COMBO SYSTEM CONSTANTS
 // =============================================================================
-#define BASE_COMBO_WINDOW_TICKS 20   // Base window in ticks for tier 1
-#define COMBO_WINDOW_DECAY 0.85f     // Multiplier per tier (gets shorter)
+#define BASE_COMBO_WINDOW_TICKS 30   // Base window in ticks for tier 1
+#define COMBO_WINDOW_INCREASE_PER_TIER 5  // Additional ticks added per tier level
 
 // =============================================================================
 // MULTIPLAYER CONSTANTS

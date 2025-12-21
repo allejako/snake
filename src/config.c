@@ -24,7 +24,7 @@ void config_init_defaults(GameConfig *cfg)
 
     // Combo system
     cfg->combo_window_ticks = BASE_COMBO_WINDOW_TICKS;
-    cfg->combo_decay = COMBO_WINDOW_DECAY;
+    cfg->combo_window_increase_per_tier = COMBO_WINDOW_INCREASE_PER_TIER;
 
     // Multiplayer settings
     cfg->initial_lives = INITIAL_LIVES;
@@ -112,8 +112,8 @@ int config_load(GameConfig *cfg, const char *filename)
                 cfg->speed_curve_k = atof(value);
             } else if (strcmp(key, "combo_window_ticks") == 0) {
                 cfg->combo_window_ticks = atoi(value);
-            } else if (strcmp(key, "combo_decay") == 0) {
-                cfg->combo_decay = atof(value);
+            } else if (strcmp(key, "combo_window_increase_per_tier") == 0) {
+                cfg->combo_window_increase_per_tier = atoi(value);
             } else if (strcmp(key, "initial_lives") == 0) {
                 cfg->initial_lives = atoi(value);
             } else if (strcmp(key, "max_players") == 0) {
@@ -166,7 +166,7 @@ int config_save(const GameConfig *cfg, const char *filename)
 
     fprintf(f, "# Combo system\n");
     fprintf(f, "combo_window_ticks=%d\n", cfg->combo_window_ticks);
-    fprintf(f, "combo_decay=%.2f\n\n", cfg->combo_decay);
+    fprintf(f, "combo_window_increase_per_tier=%d\n\n", cfg->combo_window_increase_per_tier);
 
     fprintf(f, "# Multiplayer settings\n");
     fprintf(f, "initial_lives=%d\n", cfg->initial_lives);

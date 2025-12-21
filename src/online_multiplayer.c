@@ -55,7 +55,7 @@ void online_multiplayer_destroy(OnlineMultiplayerContext *ctx)
 
 // Host operations
 
-int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int board_width, int board_height)
+int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int board_width, int board_height, const char *player_name)
 {
     printf("DEBUG: online_multiplayer_host called\n");
     printf("DEBUG: ctx=%p, ctx->api=%p, ctx->game=%p\n", (void*)ctx, (void*)(ctx ? ctx->api : NULL), (void*)(ctx ? ctx->game : NULL));
@@ -134,6 +134,8 @@ int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int b
     p->combo_best = 0;
     p->food_eaten_this_frame = 0;
     strncpy(p->client_id, ctx->game->host_client_id, sizeof(p->client_id) - 1);
+    strncpy(p->name, player_name ? player_name : "Player", sizeof(p->name) - 1);
+    p->name[sizeof(p->name) - 1] = '\0';
     p->is_local_player = 1;
     ctx->game->total_joined = 1;
 
@@ -191,8 +193,8 @@ void online_multiplayer_host_update(OnlineMultiplayerContext *ctx, unsigned int 
     for (int i = 0; i < MAX_PLAYERS; i++) {
         MultiplayerPlayer *p = &game->players[i];
 
-        if (p->death_state == GAME_OVER && p->joined) {
-            // Just died
+        if (p->death_state == GAME_OVER && p->joined && p->lives > 0) {
+            // Just died and still has lives - respawn
             p->alive = 0;
             p->lives--;
 
@@ -200,7 +202,7 @@ void online_multiplayer_host_update(OnlineMultiplayerContext *ctx, unsigned int 
                 // Respawn player
                 respawn_player(game, i);
             } else {
-                // Eliminated
+                // Eliminated - out of lives
                 game->active_players--;
             }
 
@@ -259,7 +261,7 @@ void online_multiplayer_host_broadcast_state(OnlineMultiplayerContext *ctx)
 
 // Client operations
 
-int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int board_width, int board_height)
+int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int board_width, int board_height, const char *player_name)
 {
     printf("DEBUG: online_multiplayer_join called with session_id=%s\n", session_id);
     fflush(stdout);
@@ -511,6 +513,31 @@ void online_multiplayer_toggle_ready(OnlineMultiplayerContext *ctx)
     printf("DEBUG: Player %d ready status now: %d\n", local_idx, ctx->game->players[local_idx].ready);
     fflush(stdout);
 
+    // Spawn/despawn snake based on ready status
+    if (ctx->game->players[local_idx].ready) {
+        // Spawn snake when readying up
+        static const Vec2 START_POSITIONS[MAX_PLAYERS] = {
+            {5, 5},    // Player 1: top-left area
+            {34, 5},   // Player 2: top-right area
+            {5, 34},   // Player 3: bottom-left area
+            {34, 34}   // Player 4: bottom-right area
+        };
+        static const Direction START_DIRECTIONS[MAX_PLAYERS] = {
+            DIR_RIGHT,  // Player 1
+            DIR_LEFT,   // Player 2
+            DIR_RIGHT,  // Player 3
+            DIR_LEFT    // Player 4
+        };
+
+        snake_init(&ctx->game->players[local_idx].snake, START_POSITIONS[local_idx], START_DIRECTIONS[local_idx]);
+        ctx->game->players[local_idx].alive = 0; // Not alive until game starts
+        ctx->game->players[local_idx].death_state = GAME_RUNNING;
+    } else {
+        // Despawn snake when unreadying
+        ctx->game->players[local_idx].snake.length = 0;
+        ctx->game->players[local_idx].alive = 0;
+    }
+
     // Broadcast ready status change
     json_t *ready_cmd = json_object();
     json_object_set_new(ready_cmd, "command", json_string("toggle_ready"));
@@ -732,6 +759,22 @@ static void handle_client_input(OnlineMultiplayerContext *ctx, const char *clien
                     ctx->game->players[player_idx].ready = ready;
                     printf("DEBUG: Host received toggle_ready for player %d, ready=%d\n", player_idx, ready);
                     fflush(stdout);
+
+                    // Spawn/despawn snake based on ready status
+                    if (ready) {
+                        static const Vec2 START_POSITIONS[MAX_PLAYERS] = {
+                            {5, 5},    {34, 5},   {5, 34},   {34, 34}
+                        };
+                        static const Direction START_DIRECTIONS[MAX_PLAYERS] = {
+                            DIR_RIGHT,  DIR_LEFT,   DIR_RIGHT,  DIR_LEFT
+                        };
+                        snake_init(&ctx->game->players[player_idx].snake, START_POSITIONS[player_idx], START_DIRECTIONS[player_idx]);
+                        ctx->game->players[player_idx].alive = 0;
+                        ctx->game->players[player_idx].death_state = GAME_RUNNING;
+                    } else {
+                        ctx->game->players[player_idx].snake.length = 0;
+                        ctx->game->players[player_idx].alive = 0;
+                    }
                 }
             }
             return;
@@ -817,6 +860,22 @@ static void handle_game_state_update(OnlineMultiplayerContext *ctx, json_t *data
                     ctx->game->players[player_idx].ready = ready;
                     printf("DEBUG: Received toggle_ready for player %d (not us), ready=%d\n", player_idx, ready);
                     fflush(stdout);
+
+                    // Spawn/despawn snake based on ready status
+                    if (ready) {
+                        static const Vec2 START_POSITIONS[MAX_PLAYERS] = {
+                            {5, 5},    {34, 5},   {5, 34},   {34, 34}
+                        };
+                        static const Direction START_DIRECTIONS[MAX_PLAYERS] = {
+                            DIR_RIGHT,  DIR_LEFT,   DIR_RIGHT,  DIR_LEFT
+                        };
+                        snake_init(&ctx->game->players[player_idx].snake, START_POSITIONS[player_idx], START_DIRECTIONS[player_idx]);
+                        ctx->game->players[player_idx].alive = 0;
+                        ctx->game->players[player_idx].death_state = GAME_RUNNING;
+                    } else {
+                        ctx->game->players[player_idx].snake.length = 0;
+                        ctx->game->players[player_idx].alive = 0;
+                    }
                 }
             }
             return; // Don't deserialize
@@ -866,7 +925,7 @@ static void respawn_player(MultiplayerGame_s *game, int player_idx)
     p->death_state = GAME_RUNNING;
     input_buffer_clear(&p->input);
 
-    game->active_players++;
+    // Note: Don't increment active_players - player was never removed from active count
 }
 
 static Vec2 find_safe_spawn_position(MultiplayerGame_s *game)
@@ -971,6 +1030,7 @@ static json_t* serialize_player(MultiplayerPlayer *player)
 
     // Network identity (client_id only, is_local is preserved locally)
     json_object_set_new(p, "client_id", json_string(player->client_id));
+    json_object_set_new(p, "name", json_string(player->name));
 
     // Lobby state
     json_object_set_new(p, "ready", json_boolean(player->ready));
@@ -1027,11 +1087,11 @@ static void deserialize_player(MultiplayerPlayer *player, json_t *data)
     // Lives (synced from network)
     player->lives = (int)json_integer_value(json_object_get(data, "lives"));
 
-    // Food event flag - use this to update local stats
+    // Food event flag - use this to update stats for ALL players (not just local)
     int ate_food = (int)json_integer_value(json_object_get(data, "ate"));
 
-    // Update local stats if food was eaten
-    if (ate_food && player->is_local_player) {
+    // Update stats if food was eaten (for both local and remote players)
+    if (ate_food) {
         // Update combo system
         if (player->combo_count > 0 && player->combo_expiry_time > 0) {
             player->combo_count++;
@@ -1076,6 +1136,13 @@ static void deserialize_player(MultiplayerPlayer *player, json_t *data)
         const char *cid = json_string_value(client_id_json);
         strncpy(player->client_id, cid, sizeof(player->client_id) - 1);
         player->client_id[sizeof(player->client_id) - 1] = '\0';
+    }
+
+    json_t *name_json = json_object_get(data, "name");
+    if (name_json && json_is_string(name_json)) {
+        const char *name = json_string_value(name_json);
+        strncpy(player->name, name, sizeof(player->name) - 1);
+        player->name[sizeof(player->name) - 1] = '\0';
     }
 
     // Restore is_local_player - don't let network data override this

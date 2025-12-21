@@ -23,7 +23,7 @@ typedef struct {
 
     // Combo system
     int combo_window_ticks;  // Base combo window in ticks
-    float combo_decay;       // Combo window decay per tier
+    int combo_window_increase_per_tier; // Additional ticks added per tier level
 
     // Multiplayer settings
     int initial_lives;       // Starting lives per player

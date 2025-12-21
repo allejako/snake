@@ -67,11 +67,8 @@ make run
 ## Features
 
 - **Singleplayer Mode**: Classic snake gameplay with scoring
-- **Customizable Keybindings**: Remap controls for up to 4 players
-  - Default Player 1: WASD + E
-  - Default Player 2: Arrow keys + Right Shift
-  - Default Player 3: IJKL + U
-  - Default Player 4: TFGH + R
+- **Customizable Keybindings**: Remap controls
+  - Default: Arrow keys + Space
 - **Persistent Scoreboard**: High scores saved to CSV
 - **Input Buffering**: Queue up to 2 direction changes between game ticks
 - **Pause Menu**: Pause during gameplay with ESC

@@ -40,6 +40,7 @@ void multiplayer_game_init(MultiplayerGame_s *mg, int width, int height)
         mg->players[i].food_eaten_this_frame = 0;
         mg->players[i].is_local_player = 0;
         mg->players[i].client_id[0] = '\0';
+        mg->players[i].name[0] = '\0';
         mg->players[i].snake.length = 0;
         mg->players[i].snake.dir = DIR_RIGHT;
         mg->players[i].ready = 0;
@@ -426,7 +427,7 @@ int multiplayer_game_update_death_animations(MultiplayerGame_s *mg)
                 // Snake is fully removed, mark as dead
                 player->death_state = GAME_OVER;
                 player->alive = 0;
-                mg->active_players--;
+                // Note: active_players is managed by online_multiplayer.c based on lives system
             }
             else
             {

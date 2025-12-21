@@ -24,6 +24,11 @@ void ui_draw_filled_rect(SDL_Renderer *ren, int x, int y, int w, int h, int r, i
 void ui_draw_filled_rect_alpha(SDL_Renderer *ren, int x, int y, int w, int h, int r, int g, int b, int a);
 
 /**
+ * Draw a filled rectangle with a black outline.
+ */
+void ui_draw_filled_rect_with_outline(SDL_Renderer *ren, int x, int y, int w, int h, int r, int g, int b);
+
+/**
  * Draw centered text at specified position.
  *
  * @param ren SDL renderer

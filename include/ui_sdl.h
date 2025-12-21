@@ -88,7 +88,8 @@ void ui_sdl_render_sound_settings(UiSdl *ui, const Settings *settings, const Aud
 UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Game over screen
-void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int selected_index);
+#include "scoreboard.h"
+void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int combo_best, const Scoreboard *sb, int selected_index);
 UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Online multiplayer - include the header for OnlineMultiplayerContext

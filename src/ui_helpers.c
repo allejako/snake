@@ -16,6 +16,20 @@ void ui_draw_filled_rect_alpha(SDL_Renderer *ren, int x, int y, int w, int h, in
     SDL_RenderFillRect(ren, &rect);
 }
 
+void ui_draw_filled_rect_with_outline(SDL_Renderer *ren, int x, int y, int w, int h, int r, int g, int b)
+{
+    SDL_Rect rect = {x, y, w, h};
+
+    // Draw black outline
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_RenderDrawRect(ren, &rect);
+
+    // Draw filled rect (slightly inset to show outline)
+    SDL_Rect inner_rect = {x + 1, y + 1, w - 2, h - 2};
+    SDL_SetRenderDrawColor(ren, r, g, b, 255);
+    SDL_RenderFillRect(ren, &inner_rect);
+}
+
 void ui_draw_text_centered(SDL_Renderer *ren, TextRenderer *text, int cx, int y, const char *str)
 {
     text_draw_center(ren, text, cx, y, str);

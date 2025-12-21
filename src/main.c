@@ -17,13 +17,11 @@
 #include <SDL2/SDL_ttf.h>
 
 
-// Legacy compatibility - will be replaced by config system
-#define COMBO_WINDOW_INCREASE_PER_TIER 5  // Additional ticks per tier level
-
-// Calculate tick time based on number of foods eaten (smooth exponential curve)
-static int tick_ms_for_foods(int foods)
+#define UUID "c609c6cf-ad69-4957-9aa4-6e7cac06a862"
+// Calculate tick time based on combo count (smooth exponential curve)
+static int tick_ms_for_combo(int combo_count)
 {
-    float t = SPEED_FLOOR_MS + (SPEED_START_MS - SPEED_FLOOR_MS) * expf(-SPEED_CURVE_K * (float)foods);
+    float t = SPEED_FLOOR_MS + (SPEED_START_MS - SPEED_FLOOR_MS) * expf(-SPEED_CURVE_K * (float)combo_count);
     return (int)(t + 0.5f);
 }
 
@@ -33,10 +31,7 @@ typedef enum
     APP_SINGLEPLAYER,
     APP_GAME_OVER,
     APP_MULTIPLAYER_ONLINE_MENU,      // Host vs Join selection
-    APP_MULTIPLAYER_HOST_SETUP,       // Private yes/no selection
-    APP_MULTIPLAYER_JOIN_SELECT,      // Public vs Private join selection
-    APP_MULTIPLAYER_LOBBY_BROWSER,    // Browse public lobbies
-    APP_MULTIPLAYER_SESSION_INPUT,    // Enter session ID for joining (private)
+    APP_MULTIPLAYER_SESSION_INPUT,    // Enter session ID for joining
     APP_MULTIPLAYER_ONLINE_LOBBY,     // Online lobby (waiting for players)
     APP_MULTIPLAYER_ONLINE_COUNTDOWN, // 3-2-1 countdown before game starts
     APP_MULTIPLAYER_ONLINE_GAME,      // Online gameplay
@@ -157,10 +152,10 @@ static void handle_menu_state(AppContext *ctx)
         switch (*ctx->menu_selected)
         {
         case MENU_SINGLEPLAYER:
-            *ctx->current_tick_ms = TICK_MS;
+            *ctx->current_tick_ms = ctx->config->tick_ms;
             game_init(ctx->game, ctx->config->sp_board_width, ctx->config->sp_board_height);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
-            ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Initialize combo window (tier 1)
+            ctx->game->combo_window_ms = ctx->config->tick_ms * ctx->config->combo_window_ticks; // Initialize combo window (tier 1)
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
@@ -395,12 +390,19 @@ static void handle_multiplayer_online_menu_state(AppContext *ctx)
         switch (*ctx->multiplayer_menu_selected)
         {
         case 0: // Host Game
-            *ctx->state = APP_MULTIPLAYER_HOST_SETUP;
-            *ctx->multiplayer_menu_selected = 0; // Reset for host setup menu
+            // Host directly (always private)
+            const char *player_name = (ctx->settings->profile_name[0] != '\0') ? ctx->settings->profile_name : "Player";
+            if (online_multiplayer_host(ctx->online_ctx, 1, ctx->config->mp_board_width, ctx->config->mp_board_height, player_name) == MPAPI_OK)
+            {
+                *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
+            }
+            else
+            {
+                // Failed to host, stay in menu
+            }
             break;
         case 1: // Join Game
-            *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
-            *ctx->multiplayer_menu_selected = 0; // Reset for join select menu
+            *ctx->state = APP_MULTIPLAYER_SESSION_INPUT;
             break;
         case 2: // Back
             *ctx->state = APP_MENU;
@@ -417,207 +419,6 @@ static void handle_multiplayer_online_menu_state(AppContext *ctx)
 }
 
 /**
- * Handle host setup - Private yes/no selection.
- */
-static void handle_multiplayer_host_setup_state(AppContext *ctx)
-{
-    int quit = 0;
-    UiMenuAction action = ui_sdl_poll_host_setup(ctx->ui, &quit);
-    if (quit)
-    {
-        *ctx->state = APP_QUIT;
-        return;
-    }
-
-    if (action == UI_MENU_UP)
-    {
-        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected - 1 + 2) % 2;
-    }
-    else if (action == UI_MENU_DOWN)
-    {
-        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected + 1) % 2;
-    }
-    else if (action == UI_MENU_SELECT)
-    {
-        int is_private = (*ctx->multiplayer_menu_selected == 0) ? 1 : 0;
-
-        // Initialize and host the game
-        if (online_multiplayer_host(ctx->online_ctx, is_private, ctx->config->mp_board_width, ctx->config->mp_board_height) == MPAPI_OK)
-        {
-            *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
-        }
-        else
-        {
-            // Failed to host, go back
-            *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
-        }
-    }
-    else if (action == UI_MENU_BACK)
-    {
-        *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
-    }
-
-    ui_sdl_render_host_setup(ctx->ui, *ctx->multiplayer_menu_selected);
-    SDL_Delay(MENU_FRAME_DELAY_MS);
-}
-
-/**
- * Handle join select - Public vs Private join selection.
- */
-static void handle_multiplayer_join_select_state(AppContext *ctx)
-{
-    int quit = 0;
-    UiMenuAction action = ui_sdl_poll_join_select(ctx->ui, &quit);
-    if (quit)
-    {
-        *ctx->state = APP_QUIT;
-        return;
-    }
-
-    if (action == UI_MENU_UP)
-    {
-        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected - 1 + 2) % 2;
-    }
-    else if (action == UI_MENU_DOWN)
-    {
-        *ctx->multiplayer_menu_selected = (*ctx->multiplayer_menu_selected + 1) % 2;
-    }
-    else if (action == UI_MENU_SELECT)
-    {
-        if (*ctx->multiplayer_menu_selected == 0)
-        {
-            // Public - go to lobby browser
-            *ctx->state = APP_MULTIPLAYER_LOBBY_BROWSER;
-            *ctx->multiplayer_menu_selected = 0; // Reset for lobby browser
-        }
-        else
-        {
-            // Private - go to session input
-            *ctx->state = APP_MULTIPLAYER_SESSION_INPUT;
-        }
-    }
-    else if (action == UI_MENU_BACK)
-    {
-        *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
-    }
-
-    ui_sdl_render_join_select(ctx->ui, *ctx->multiplayer_menu_selected);
-    SDL_Delay(MENU_FRAME_DELAY_MS);
-}
-
-/**
- * Handle lobby browser - Browse and join public lobbies.
- */
-static void handle_multiplayer_lobby_browser_state(AppContext *ctx)
-{
-    static json_t *cached_lobby_list = NULL;
-    static int selected_lobby = 0;
-    static int need_fetch = 1;
-
-    int quit = 0;
-
-    // Fetch lobby list only when entering state or refreshing
-    if (need_fetch)
-    {
-        if (cached_lobby_list)
-        {
-            json_decref(cached_lobby_list);
-            cached_lobby_list = NULL;
-        }
-
-        int rc = mpapi_list(ctx->online_ctx->api, &cached_lobby_list);
-
-        if (rc != MPAPI_OK || !cached_lobby_list)
-        {
-            // Failed to fetch lobbies, go back
-            need_fetch = 1;
-            selected_lobby = 0;
-            *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
-            ui_sdl_render_error(ctx->ui, "Failed to fetch lobby list");
-            SDL_Delay(2000);
-            return;
-        }
-
-        need_fetch = 0;
-        selected_lobby = 0;
-    }
-
-    size_t lobby_count = json_array_size(cached_lobby_list);
-
-    UiMenuAction action = ui_sdl_poll_lobby_browser(ctx->ui, &quit);
-    if (quit)
-    {
-        if (cached_lobby_list)
-        {
-            json_decref(cached_lobby_list);
-            cached_lobby_list = NULL;
-        }
-        need_fetch = 1;
-        *ctx->state = APP_QUIT;
-        return;
-    }
-
-    if (action == UI_MENU_UP && lobby_count > 0)
-    {
-        selected_lobby = (selected_lobby - 1 + (int)lobby_count) % (int)lobby_count;
-    }
-    else if (action == UI_MENU_DOWN && lobby_count > 0)
-    {
-        selected_lobby = (selected_lobby + 1) % (int)lobby_count;
-    }
-    else if (action == UI_MENU_SELECT && lobby_count > 0)
-    {
-        // Get selected lobby's session ID
-        json_t *lobby = json_array_get(cached_lobby_list, selected_lobby);
-        json_t *session_json = json_object_get(lobby, "session");
-
-        if (session_json && json_is_string(session_json))
-        {
-            const char *session_id = json_string_value(session_json);
-
-            // Join the selected lobby
-            if (online_multiplayer_join(ctx->online_ctx, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height) == MPAPI_OK)
-            {
-                json_decref(cached_lobby_list);
-                cached_lobby_list = NULL;
-                need_fetch = 1;
-                selected_lobby = 0;
-                *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
-                return;
-            }
-        }
-
-        // Failed to join
-        if (cached_lobby_list)
-        {
-            json_decref(cached_lobby_list);
-            cached_lobby_list = NULL;
-        }
-        need_fetch = 1;
-        selected_lobby = 0;
-        *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
-        ui_sdl_render_error(ctx->ui, "Failed to join lobby");
-        SDL_Delay(2000);
-        return;
-    }
-    else if (action == UI_MENU_BACK)
-    {
-        if (cached_lobby_list)
-        {
-            json_decref(cached_lobby_list);
-            cached_lobby_list = NULL;
-        }
-        need_fetch = 1;
-        selected_lobby = 0;
-        *ctx->state = APP_MULTIPLAYER_JOIN_SELECT;
-        return;
-    }
-
-    ui_sdl_render_lobby_browser(ctx->ui, cached_lobby_list, selected_lobby);
-    SDL_Delay(MENU_FRAME_DELAY_MS);
-}
-
-/**
  * Handle session input - Enter session ID for joining.
  */
 static void handle_multiplayer_session_input_state(AppContext *ctx)
@@ -626,7 +427,8 @@ static void handle_multiplayer_session_input_state(AppContext *ctx)
     if (ui_sdl_get_session_id(ctx->ui, session_id, sizeof(session_id)))
     {
         // User entered a session ID
-        if (online_multiplayer_join(ctx->online_ctx, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height) == MPAPI_OK)
+        const char *player_name = (ctx->settings->profile_name[0] != '\0') ? ctx->settings->profile_name : "Player";
+        if (online_multiplayer_join(ctx->online_ctx, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height, player_name) == MPAPI_OK)
         {
             *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
         }
@@ -724,7 +526,7 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
 
         // Recreate for next session
         ctx->online_ctx = online_multiplayer_create();
-        ctx->mpapi_inst = mpapi_create(ctx->config->server_host, ctx->config->server_port, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+        ctx->mpapi_inst = mpapi_create(ctx->config->server_host, ctx->config->server_port, UUID);
         
         if (ctx->online_ctx && ctx->mpapi_inst)
         {
@@ -949,8 +751,8 @@ static void handle_game_over_state(AppContext *ctx)
     // Calculate time survived (frozen at death)
     int time_seconds = (int)((ctx->game->death_time - ctx->game->start_time) / 1000);
 
-    // Render game over screen
-    ui_sdl_render_game_over(ctx->ui, ctx->game->score, ctx->game->fruits_eaten, time_seconds, *ctx->game_over_selected);
+    // Render game over screen with scoreboard
+    ui_sdl_render_game_over(ctx->ui, ctx->game->score, ctx->game->fruits_eaten, time_seconds, ctx->game->combo_best, ctx->sb, *ctx->game_over_selected);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 
     // Poll for input
@@ -975,10 +777,10 @@ static void handle_game_over_state(AppContext *ctx)
         if (*ctx->game_over_selected == 0)
         {
             // Try again - restart game
-            *ctx->current_tick_ms = TICK_MS; // Reset to normal speed
+            *ctx->current_tick_ms = ctx->config->tick_ms; // Reset to normal speed
             game_init(ctx->game, ctx->config->sp_board_width, ctx->config->sp_board_height);
             ctx->game->start_time = (unsigned int)SDL_GetTicks();
-            ctx->game->combo_window_ms = TICK_MS * BASE_COMBO_WINDOW_TICKS; // Reset combo window (tier 1)
+            ctx->game->combo_window_ms = ctx->config->tick_ms * ctx->config->combo_window_ticks; // Reset combo window (tier 1)
             *ctx->paused = 0;
             *ctx->pending_save_this_round = 1;
             *ctx->last_tick = (unsigned int)SDL_GetTicks();
@@ -1135,7 +937,14 @@ static void handle_singleplayer_state(AppContext *ctx)
     // Update combo timer (every frame)
     if (ctx->game->state == GAME_RUNNING)
     {
+        int prev_combo = ctx->game->combo_count;
         game_update_combo_timer(ctx->game, now);
+
+        // If combo was lost, reset speed to starting speed
+        if (prev_combo > 0 && ctx->game->combo_count == 0)
+        {
+            *ctx->current_tick_ms = tick_ms_for_combo(0);
+        }
     }
 
     if (ctx->game->state == GAME_RUNNING && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
@@ -1149,13 +958,19 @@ static void handle_singleplayer_state(AppContext *ctx)
         }
         game_update(ctx->game);
 
+        // Update speed based on combo count (smooth exponential curve)
+        if (ctx->game->food_eaten_this_frame)
+        {
+            *ctx->current_tick_ms = tick_ms_for_combo(ctx->game->combo_count);
+        }
+
         // Handle combo SFX and timer update if food was eaten
         if (ctx->game->food_eaten_this_frame)
         {
             // Update combo window based on current game speed and tier
             // Higher tiers get more time to maintain combo
             int tier = game_get_combo_tier(ctx->game->combo_count);
-            int window_ticks = BASE_COMBO_WINDOW_TICKS + (tier - 1) * COMBO_WINDOW_INCREASE_PER_TIER;
+            int window_ticks = ctx->config->combo_window_ticks + (tier - 1) * ctx->config->combo_window_increase_per_tier;
             ctx->game->combo_window_ms = *ctx->current_tick_ms * window_ticks;
 
             // Update combo expiry time
@@ -1168,12 +983,6 @@ static void handle_singleplayer_state(AppContext *ctx)
                 snprintf(sfx_name, sizeof(sfx_name), "combo%d", tier);
                 audio_sdl_play_sound(ctx->audio, sfx_name);
             }
-        }
-
-        // Update speed based on foods eaten (smooth exponential curve)
-        if (ctx->game->food_eaten_this_frame)
-        {
-            *ctx->current_tick_ms = tick_ms_for_foods(ctx->game->fruits_eaten);
         }
     }
 
@@ -1202,6 +1011,12 @@ static void handle_singleplayer_state(AppContext *ctx)
             scoreboard_sort(ctx->sb);
             scoreboard_trim_to_top_n(ctx->sb, 5);
             scoreboard_save(ctx->sb);
+
+            // Play high score sound
+            if (ctx->audio)
+            {
+                audio_sdl_play_sound(ctx->audio, "highscore");
+            }
         }
 
         *ctx->pending_save_this_round = 0;
@@ -1324,6 +1139,12 @@ int main(int argc, char *argv[])
                     fprintf(stderr, "Warning: Failed to load %s\n", combo_files[i]);
                 }
             }
+
+            // Load high score sound effect
+            if (!audio_sdl_load_sound(audio, "assets/audio/Highscore.wav", "highscore"))
+            {
+                fprintf(stderr, "Warning: Failed to load highscore sound effect\n");
+            }
         }
     }
     else
@@ -1372,7 +1193,7 @@ int main(int argc, char *argv[])
 
     // Initialize mpapi instance and connect to online context
     // The identifier must be exactly 36 characters (UUID format)
-    mpapi *mpapi_instance = mpapi_create(game_config.server_host, game_config.server_port, "c609c6cf-ad69-4957-9aa4-6e7cac06a862");
+    mpapi *mpapi_instance = mpapi_create(game_config.server_host, game_config.server_port, UUID);
     if (!mpapi_instance)
     {
         fprintf(stderr, "Failed to create mpapi instance\n");
@@ -1448,15 +1269,6 @@ int main(int argc, char *argv[])
             break;
         case APP_MULTIPLAYER_ONLINE_MENU:
             handle_multiplayer_online_menu_state(&ctx);
-            break;
-        case APP_MULTIPLAYER_HOST_SETUP:
-            handle_multiplayer_host_setup_state(&ctx);
-            break;
-        case APP_MULTIPLAYER_JOIN_SELECT:
-            handle_multiplayer_join_select_state(&ctx);
-            break;
-        case APP_MULTIPLAYER_LOBBY_BROWSER:
-            handle_multiplayer_lobby_browser_state(&ctx);
             break;
         case APP_MULTIPLAYER_SESSION_INPUT:
             handle_multiplayer_session_input_state(&ctx);

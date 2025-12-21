@@ -32,6 +32,7 @@ typedef struct {
 
     // Network identity
     char client_id[64];       // mpapi client ID (empty string for local player)
+    char name[32];            // Player display name
     int is_local_player;      // 1 if this is the local player, 0 if remote
 
     // Lobby state
