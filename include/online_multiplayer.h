@@ -29,6 +29,9 @@ typedef struct {
     Direction pending_input;     // Client's next input direction
     int has_pending_input;       // 1 if input queued
     char our_client_id[64];      // Our mpapi client ID (for identifying ourselves)
+
+    // Synchronized game timing
+    unsigned int game_start_timestamp; // Synchronized timestamp when game should start (after countdown)
 } OnlineMultiplayerContext;
 
 // Lifecycle

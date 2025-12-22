@@ -572,19 +572,33 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
 
 /**
  * Handle online countdown - 3-2-1 countdown before game starts.
+ * Uses synchronized timestamp to ensure all clients start at the same time.
  */
 static void handle_multiplayer_online_countdown_state(AppContext *ctx)
 {
     unsigned int current_time = SDL_GetTicks();
-    unsigned int elapsed = current_time - *ctx->countdown_start;
-    int countdown = 3 - (int)(elapsed / 1000);
 
-    if (countdown < 0)
+    // Calculate countdown based on synchronized game start timestamp
+    int ms_remaining = (int)ctx->online_ctx->game_start_timestamp - (int)current_time;
+    int countdown = (ms_remaining + 999) / 1000; // Round up to nearest second
+
+    // Debug output (only print occasionally to avoid spam)
+    static int debug_counter = 0;
+    if (debug_counter++ % 30 == 0) {
+        printf("DEBUG COUNTDOWN: is_host=%d, game_start_timestamp=%u, current_time=%u, ms_remaining=%d, countdown=%d\n",
+               ctx->online_ctx->game->is_host, ctx->online_ctx->game_start_timestamp, current_time, ms_remaining, countdown);
+        fflush(stdout);
+    }
+
+    if (ms_remaining <= 0)
     {
-        // Start game
+        // Start game at the synchronized timestamp
         ctx->online_ctx->state = ONLINE_STATE_PLAYING;
         *ctx->state = APP_MULTIPLAYER_ONLINE_GAME;
-        *ctx->last_tick = SDL_GetTicks();
+        *ctx->last_tick = ctx->online_ctx->game_start_timestamp; // Use synchronized start time for first tick
+        printf("DEBUG: Game starting at synchronized timestamp %u (current: %u)\n",
+               ctx->online_ctx->game_start_timestamp, current_time);
+        fflush(stdout);
         return;
     }
 
@@ -680,6 +694,7 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                     json_object_set_new(pos_update, "segments", segments);
                     json_object_set_new(pos_update, "direction", json_integer(local_player->snake.dir));
                     json_object_set_new(pos_update, "death_state", json_integer(local_player->death_state));
+                    json_object_set_new(pos_update, "alive", json_boolean(local_player->alive));
 
                     mpapi_game(ctx->online_ctx->api, pos_update, NULL);
                     json_decref(pos_update);
@@ -706,8 +721,24 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                 static GameState prev_death_state[MAX_PLAYERS] = {GAME_RUNNING, GAME_RUNNING, GAME_RUNNING, GAME_RUNNING};
                 GameState old_death_state = prev_death_state[local_idx];
 
+                // Track snake length to detect food eating
+                int old_length = local_player->snake.length;
+
                 // Both host and client use multiplayer_game_update() for movement
                 multiplayer_game_update(game, game->is_host);
+
+                // Join client: send food_eaten notification when snake grows
+                if (!game->is_host && local_player->snake.length > old_length) {
+                    // Snake grew, so food was eaten - notify host which food
+                    Vec2 head = snake_head(&local_player->snake);
+
+                    json_t *food_msg = json_object();
+                    json_object_set_new(food_msg, "food_eaten", json_boolean(1));
+                    json_object_set_new(food_msg, "food_x", json_integer(head.x));
+                    json_object_set_new(food_msg, "food_y", json_integer(head.y));
+                    mpapi_game(ctx->online_ctx->api, food_msg, NULL);
+                    json_decref(food_msg);
+                }
 
                 // Both host and client decrement lives when dying
                 if (old_death_state == GAME_RUNNING && local_player->death_state == GAME_DYING) {
@@ -794,7 +825,7 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                         snake_init(&local_player->snake, spawn_pos, DIR_RIGHT);
                         local_player->alive = 1;
                         local_player->death_state = GAME_RUNNING;
-                        input_buffer_clear(&local_player->input);
+                        // Don't clear input buffer - preserve inputs pressed during death animation
 
                         // Reset combo
                         local_player->combo_count = 0;

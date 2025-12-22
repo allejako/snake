@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <SDL2/SDL.h>
 
 #define COMBO_WINDOW_TICKS 30
 #define INITIAL_LIVES 3
@@ -218,9 +219,12 @@ void online_multiplayer_host_update(OnlineMultiplayerContext *ctx, unsigned int 
 
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (game->players[i].joined) {
-                // Alive player wins, or if no one alive, highest score wins
-                if (game->players[i].alive ||
-                    (winner_idx == -1 && game->players[i].score > highest_score)) {
+                // Player with lives > 0 wins, or if no one has lives, highest score wins
+                if (game->players[i].lives > 0) {
+                    winner_idx = i;
+                    break; // Winner found
+                }
+                else if (game->players[i].score > highest_score) {
                     winner_idx = i;
                     highest_score = game->players[i].score;
                 }
@@ -522,8 +526,14 @@ void online_multiplayer_start_game(OnlineMultiplayerContext *ctx)
         printf("DEBUG: Broadcasting start_game command\n");
         fflush(stdout);
 
+        // Host calculates their own start timestamp (3 seconds from now)
+        unsigned int current_time = (unsigned int)SDL_GetTicks();
+        ctx->game_start_timestamp = current_time + 3000;
+
         json_t *start_cmd = json_object();
         json_object_set_new(start_cmd, "command", json_string("start_game"));
+        // Send RELATIVE delay (3000ms) instead of absolute timestamp
+        json_object_set_new(start_cmd, "countdown_ms", json_integer(3000));
 
         int rc = mpapi_game(ctx->api, start_cmd, NULL);
         if (rc != MPAPI_OK) {
@@ -534,7 +544,7 @@ void online_multiplayer_start_game(OnlineMultiplayerContext *ctx)
 
         json_decref(start_cmd);
 
-        printf("DEBUG: Broadcast start_game command completed\n");
+        printf("DEBUG: Broadcast start_game command with 3000ms countdown\n");
         fflush(stdout);
     }
 
@@ -899,6 +909,42 @@ static void handle_client_input(OnlineMultiplayerContext *ctx, const char *clien
         return;
     }
 
+    // Check for food eaten notification (client ate food)
+    json_t *food_eaten = json_object_get(data, "food_eaten");
+    if (food_eaten && json_is_true(food_eaten)) {
+        json_t *food_x = json_object_get(data, "food_x");
+        json_t *food_y = json_object_get(data, "food_y");
+
+        if (food_x && food_y) {
+            Vec2 food_pos = {
+                (int)json_integer_value(food_x),
+                (int)json_integer_value(food_y)
+            };
+
+            // Remove the food that was eaten and generate new food
+            if (vec2_equal(ctx->game->board.food, food_pos)) {
+                // Regenerate main food using first joined player's snake
+                for (int i = 0; i < MAX_PLAYERS; i++) {
+                    if (ctx->game->players[i].joined) {
+                        board_place_food(&ctx->game->board, &ctx->game->players[i].snake);
+                        break;
+                    }
+                }
+            } else {
+                // Check additional food items
+                for (int f = 0; f < ctx->game->food_count; f++) {
+                    if (vec2_equal(ctx->game->food[f], food_pos)) {
+                        // Remove this food by replacing with last food
+                        ctx->game->food[f] = ctx->game->food[ctx->game->food_count - 1];
+                        ctx->game->food_count--;
+                        break;
+                    }
+                }
+            }
+        }
+        return;
+    }
+
     // Check for respawn notification (client respawned itself)
     json_t *player_respawned = json_object_get(data, "player_respawned");
     if (player_respawned && json_is_true(player_respawned)) {
@@ -1025,6 +1071,12 @@ skip_input:
     if (death_state_json && json_is_integer(death_state_json)) {
         player->death_state = (GameState)json_integer_value(death_state_json);
     }
+
+    // Update alive flag so host can correctly determine winner
+    json_t *alive_json = json_object_get(data, "alive");
+    if (alive_json && json_is_boolean(alive_json)) {
+        player->alive = json_is_true(alive_json);
+    }
 }
 
 static void handle_game_state_update(OnlineMultiplayerContext *ctx, json_t *data)
@@ -1043,6 +1095,21 @@ static void handle_game_state_update(OnlineMultiplayerContext *ctx, json_t *data
         else if (strcmp(cmd, "start_game") == 0) {
             printf("DEBUG: Received start_game command, transitioning to COUNTDOWN\n");
             fflush(stdout);
+
+            // Read relative countdown delay from host
+            json_t *countdown_json = json_object_get(data, "countdown_ms");
+            unsigned int countdown_ms = 3000; // Default to 3 seconds
+            if (countdown_json && json_is_integer(countdown_json)) {
+                countdown_ms = (unsigned int)json_integer_value(countdown_json);
+            }
+
+            // Calculate our own absolute timestamp based on OUR clock
+            unsigned int current_time = (unsigned int)SDL_GetTicks();
+            ctx->game_start_timestamp = current_time + countdown_ms;
+            printf("DEBUG: Client calculated game_start_timestamp: %u (current: %u, countdown: %u)\n",
+                   ctx->game_start_timestamp, current_time, countdown_ms);
+            fflush(stdout);
+
             ctx->state = ONLINE_STATE_COUNTDOWN;
             multiplayer_game_start(ctx->game);
 

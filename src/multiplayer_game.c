@@ -25,6 +25,8 @@ void multiplayer_game_init(MultiplayerGame_s *mg, int width, int height)
     mg->food_count = 0;
     mg->active_players = 0;
     mg->total_joined = 0;
+    // Note: is_host, local_player_index, combo_window_ms, session_id, and host_client_id
+    // are set by the caller (online_multiplayer_host/join), so don't initialize them here
 
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
@@ -204,20 +206,15 @@ void multiplayer_game_update(MultiplayerGame_s *mg, int is_host)
         Vec2 head = snake_head(snake);
         Vec2 next = head;
 
-        // Pure Client Authoritative: Remote players' positions are already updated from network
-        // Only calculate next position for local player (who will move in this tick)
-        if (mg->players[i].is_local_player)
+        // Calculate next position for ALL players (local and remote)
+        // For remote players, predict next position based on direction to handle network latency
+        switch (snake->dir)
         {
-            // Local player: Calculate where we WILL move
-            switch (snake->dir)
-            {
-            case DIR_UP:    next.y--; break;
-            case DIR_DOWN:  next.y++; break;
-            case DIR_LEFT:  next.x--; break;
-            case DIR_RIGHT: next.x++; break;
-            }
+        case DIR_UP:    next.y--; break;
+        case DIR_DOWN:  next.y++; break;
+        case DIR_LEFT:  next.x--; break;
+        case DIR_RIGHT: next.x++; break;
         }
-        // else: Remote player - use current position (already moved on their client)
 
         next_positions[i] = next;
 
