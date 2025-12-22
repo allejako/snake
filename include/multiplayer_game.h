@@ -23,6 +23,7 @@ typedef struct {
     int score;                // Player's score
     int fruits_eaten;         // Number of fruits eaten
     int lives;                // Lives remaining (starts at 3)
+    int wins;                 // Number of games won in this session
 
     // Combo system (per-player)
     int combo_count;          // Current combo streak
@@ -100,8 +101,9 @@ void multiplayer_game_start(MultiplayerGame_s *mg);
 
 /**
  * Update game state by one tick - move all snakes, check collisions, handle food.
+ * is_host: if 1, generates new food when eaten; if 0, only consumes food (waits for host)
  */
-void multiplayer_game_update(MultiplayerGame_s *mg);
+void multiplayer_game_update(MultiplayerGame_s *mg, int is_host);
 
 /**
  * Change direction for a specific player's snake.

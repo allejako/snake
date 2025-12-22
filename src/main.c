@@ -541,15 +541,28 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
         // Player pressed USE key to toggle ready status
         online_multiplayer_toggle_ready(ctx->online_ctx);
     }
-    else if (action == UI_MENU_SELECT && ctx->online_ctx->game->is_host)
+    else if (action == UI_MENU_SELECT)
     {
-        // Host pressed ENTER to start game - only allowed if all players are ready
-        if (online_multiplayer_all_players_ready(ctx->online_ctx))
+        printf("DEBUG: ENTER pressed in lobby, is_host=%d\n", ctx->online_ctx->game->is_host);
+        fflush(stdout);
+
+        if (ctx->online_ctx->game->is_host)
         {
-            *ctx->current_tick_ms = TICK_MS; // Reset to default speed for multiplayer
-            online_multiplayer_start_game(ctx->online_ctx);
-            *ctx->countdown_start = SDL_GetTicks();
-            *ctx->state = APP_MULTIPLAYER_ONLINE_COUNTDOWN;
+            // Host pressed ENTER to start game - only allowed if all players are ready
+            if (online_multiplayer_all_players_ready(ctx->online_ctx))
+            {
+                printf("DEBUG: All players ready, starting game\n");
+                fflush(stdout);
+                *ctx->current_tick_ms = TICK_MS; // Reset to default speed for multiplayer
+                online_multiplayer_start_game(ctx->online_ctx);
+                *ctx->countdown_start = SDL_GetTicks();
+                *ctx->state = APP_MULTIPLAYER_ONLINE_COUNTDOWN;
+            }
+            else
+            {
+                printf("DEBUG: Not all players ready yet\n");
+                fflush(stdout);
+            }
         }
     }
 
@@ -640,18 +653,190 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
             }
         }
 
+    }
+
+    // Both host and join client run the SAME simulation code for their own snake
+    {
+        // Send position updates 4x per game tick for smooth remote rendering
+        static unsigned int last_position_send = 0;
+        unsigned int position_send_interval = *ctx->current_tick_ms / 4;  // 80ms / 4 = 20ms
+
+        if (current_time - last_position_send >= position_send_interval)
+        {
+            int local_idx = ctx->online_ctx->game->local_player_index;
+            if (local_idx >= 0 && local_idx < MAX_PLAYERS) {
+                MultiplayerPlayer *local_player = &ctx->online_ctx->game->players[local_idx];
+                // Send updates even when dying (include death_state)
+                if (local_player->joined) {
+                    // Send position update to host
+                    json_t *pos_update = json_object();
+                    json_object_set_new(pos_update, "position_update", json_boolean(1));
+
+                    json_t *segments = json_array();
+                    for (int i = 0; i < local_player->snake.length; i++) {
+                        json_array_append_new(segments, json_integer(local_player->snake.segments[i].x));
+                        json_array_append_new(segments, json_integer(local_player->snake.segments[i].y));
+                    }
+                    json_object_set_new(pos_update, "segments", segments);
+                    json_object_set_new(pos_update, "direction", json_integer(local_player->snake.dir));
+                    json_object_set_new(pos_update, "death_state", json_integer(local_player->death_state));
+
+                    mpapi_game(ctx->online_ctx->api, pos_update, NULL);
+                    json_decref(pos_update);
+                }
+            }
+            last_position_send = current_time;
+        }
+
+        // Simulate local player's snake using SAME function for both host and client
         if (current_time - *ctx->last_tick >= *ctx->current_tick_ms)
         {
-            online_multiplayer_host_update(ctx->online_ctx, current_time);
-            *ctx->last_tick = current_time;
+            int local_idx = ctx->online_ctx->game->local_player_index;
+            if (local_idx >= 0 && local_idx < MAX_PLAYERS) {
+                MultiplayerPlayer *local_player = &ctx->online_ctx->game->players[local_idx];
+                MultiplayerGame_s *game = ctx->online_ctx->game;
 
-            // Check game over
-            if (multiplayer_game_is_over(ctx->online_ctx->game))
-            {
-                *ctx->gameover_start = (unsigned int)SDL_GetTicks();
-                *ctx->state = APP_MULTIPLAYER_ONLINE_GAMEOVER;
-                return;
+                // Process input for local player
+                Direction dir;
+                if (input_buffer_pop(&local_player->input, &dir)) {
+                    snake_change_direction(&local_player->snake, dir);
+                }
+
+                // Track death state changes for notifications
+                static GameState prev_death_state[MAX_PLAYERS] = {GAME_RUNNING, GAME_RUNNING, GAME_RUNNING, GAME_RUNNING};
+                GameState old_death_state = prev_death_state[local_idx];
+
+                // Both host and client use multiplayer_game_update() for movement
+                multiplayer_game_update(game, game->is_host);
+
+                // Both host and client decrement lives when dying
+                if (old_death_state == GAME_RUNNING && local_player->death_state == GAME_DYING) {
+                    if (local_player->lives > 0) {
+                        local_player->lives--;
+                    }
+
+                    // Join client sends death notification to host
+                    if (!game->is_host) {
+                        json_t *death_msg = json_object();
+                        json_object_set_new(death_msg, "player_died", json_boolean(1));
+                        json_object_set_new(death_msg, "lives", json_integer(local_player->lives));
+                        mpapi_game(ctx->online_ctx->api, death_msg, NULL);
+                        json_decref(death_msg);
+                    }
+                }
+
+                // Handle death animations (same for both host and client)
+                // Join client: send food notifications during death animation
+                if (!game->is_host && local_player->death_state == GAME_DYING && local_player->snake.length > 0) {
+                    Vec2 head = snake_head(&local_player->snake);
+                    json_t *food_msg = json_object();
+                    json_object_set_new(food_msg, "food_added", json_boolean(1));
+                    json_object_set_new(food_msg, "food_x", json_integer(head.x));
+                    json_object_set_new(food_msg, "food_y", json_integer(head.y));
+                    mpapi_game(ctx->online_ctx->api, food_msg, NULL);
+                    json_decref(food_msg);
+                }
+
+                multiplayer_game_update_death_animations(game);
+
+                // Handle respawns (same for both host and client)
+                if (local_player->death_state == GAME_OVER) {
+                    // Client handles own respawn
+                    if (local_player->lives > 0) {
+                        // Find safe spawn position (client-authoritative)
+                        Vec2 spawn_pos = {game->board.width / 2, game->board.height / 2};  // Default center
+
+                        // Try to find a safe position (3x3 area check)
+                        int max_attempts = 100;
+                        for (int attempt = 0; attempt < max_attempts; attempt++) {
+                            int margin = 3;
+                            Vec2 candidate = {
+                                margin + (rand() % (game->board.width - 2 * margin)),
+                                margin + (rand() % (game->board.height - 2 * margin))
+                            };
+
+                            int safe = 1;
+                            for (int dx = -1; dx <= 1 && safe; dx++) {
+                                for (int dy = -1; dy <= 1 && safe; dy++) {
+                                    Vec2 check = {candidate.x + dx, candidate.y + dy};
+
+                                    // Check all snakes
+                                    for (int i = 0; i < MAX_PLAYERS; i++) {
+                                        if (game->players[i].snake.length > 0 &&
+                                            snake_occupies(&game->players[i].snake, check)) {
+                                            safe = 0;
+                                            break;
+                                        }
+                                    }
+
+                                    // Check main food
+                                    if (vec2_equal(check, game->board.food)) {
+                                        safe = 0;
+                                    }
+
+                                    // Check death animation food
+                                    for (int f = 0; f < game->food_count; f++) {
+                                        if (vec2_equal(check, game->food[f])) {
+                                            safe = 0;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (safe) {
+                                spawn_pos = candidate;
+                                break;
+                            }
+                        }
+
+                        // Reset snake
+                        snake_init(&local_player->snake, spawn_pos, DIR_RIGHT);
+                        local_player->alive = 1;
+                        local_player->death_state = GAME_RUNNING;
+                        input_buffer_clear(&local_player->input);
+
+                        // Reset combo
+                        local_player->combo_count = 0;
+                        local_player->combo_expiry_time = 0;
+
+                        // Join client sends respawn notification to host
+                        if (!game->is_host) {
+                            json_t *respawn_msg = json_object();
+                            json_object_set_new(respawn_msg, "player_respawned", json_boolean(1));
+                            json_object_set_new(respawn_msg, "spawn_x", json_integer(spawn_pos.x));
+                            json_object_set_new(respawn_msg, "spawn_y", json_integer(spawn_pos.y));
+                            mpapi_game(ctx->online_ctx->api, respawn_msg, NULL);
+                            json_decref(respawn_msg);
+                        }
+                    }
+                    // else: no lives left, stay eliminated
+                }
+
+                // Update death state tracker
+                prev_death_state[local_idx] = local_player->death_state;
+
+                // Host broadcasts state after simulation (before updating last_tick)
+                if (game->is_host) {
+                    online_multiplayer_host_broadcast_state(ctx->online_ctx);
+
+                    // Check game over
+                    if (multiplayer_game_is_over(game))
+                    {
+                        // Send game_over command to all clients
+                        json_t *game_over_cmd = json_object();
+                        json_object_set_new(game_over_cmd, "command", json_string("game_over"));
+                        mpapi_game(ctx->online_ctx->api, game_over_cmd, NULL);
+                        json_decref(game_over_cmd);
+
+                        *ctx->gameover_start = (unsigned int)SDL_GetTicks();
+                        *ctx->state = APP_MULTIPLAYER_ONLINE_GAMEOVER;
+                        return;
+                    }
+                }
             }
+
+            *ctx->last_tick = current_time;
         }
     }
 

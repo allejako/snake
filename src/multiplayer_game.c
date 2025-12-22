@@ -33,6 +33,7 @@ void multiplayer_game_init(MultiplayerGame_s *mg, int width, int height)
         mg->players[i].death_state = GAME_OVER;
         mg->players[i].score = 0;
         mg->players[i].lives = 0;
+        mg->players[i].wins = 0;
         mg->players[i].fruits_eaten = 0;
         mg->players[i].combo_count = 0;
         mg->players[i].combo_expiry_time = 0;
@@ -76,21 +77,41 @@ int multiplayer_game_leave_player(MultiplayerGame_s *mg, int player_index)
 
 void multiplayer_game_start(MultiplayerGame_s *mg)
 {
+    printf("DEBUG: multiplayer_game_start - entry\n");
+    fflush(stdout);
+
     mg->active_players = 0;
     mg->food_count = 0;
+
+    printf("DEBUG: multiplayer_game_start - initializing snakes\n");
+    fflush(stdout);
 
     // Initialize snakes for joined players
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
         if (mg->players[i].joined)
         {
+            printf("DEBUG: Initializing player %d snake\n", i);
+            fflush(stdout);
+
             snake_init(&mg->players[i].snake, START_POSITIONS[i], START_DIRECTIONS[i]);
             mg->players[i].alive = 1;
             mg->players[i].death_state = GAME_RUNNING;
             input_buffer_clear(&mg->players[i].input);
             mg->active_players++;
+
+            // Reset game stats for new round
+            mg->players[i].score = 0;
+            mg->players[i].fruits_eaten = 0;
+            mg->players[i].combo_count = 0;
+            mg->players[i].combo_expiry_time = 0;
+            mg->players[i].combo_best = 0;
+            mg->players[i].food_eaten_this_frame = 0;
         }
     }
+
+    printf("DEBUG: multiplayer_game_start - spawning food\n");
+    fflush(stdout);
 
     // Spawn initial food (use first joined player's snake for placement)
     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -101,6 +122,9 @@ void multiplayer_game_start(MultiplayerGame_s *mg)
             break;
         }
     }
+
+    printf("DEBUG: multiplayer_game_start - completed\n");
+    fflush(stdout);
 }
 
 void multiplayer_game_add_food(MultiplayerGame_s *mg, Vec2 pos)
@@ -157,7 +181,7 @@ static void spawn_food_avoiding_snakes(MultiplayerGame_s *mg, Vec2 *out_food)
     out_food->y = rand() % mg->board.height;
 }
 
-void multiplayer_game_update(MultiplayerGame_s *mg)
+void multiplayer_game_update(MultiplayerGame_s *mg, int is_host)
 {
     // Reset food eaten flags from previous frame
     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -180,13 +204,20 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
         Vec2 head = snake_head(snake);
         Vec2 next = head;
 
-        switch (snake->dir)
+        // Pure Client Authoritative: Remote players' positions are already updated from network
+        // Only calculate next position for local player (who will move in this tick)
+        if (mg->players[i].is_local_player)
         {
-        case DIR_UP:    next.y--; break;
-        case DIR_DOWN:  next.y++; break;
-        case DIR_LEFT:  next.x--; break;
-        case DIR_RIGHT: next.x++; break;
+            // Local player: Calculate where we WILL move
+            switch (snake->dir)
+            {
+            case DIR_UP:    next.y--; break;
+            case DIR_DOWN:  next.y++; break;
+            case DIR_LEFT:  next.x--; break;
+            case DIR_RIGHT: next.x++; break;
+            }
         }
+        // else: Remote player - use current position (already moved on their client)
 
         next_positions[i] = next;
 
@@ -262,15 +293,20 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
         Snake *snake = &mg->players[i].snake;
         Vec2 next = next_positions[i];
 
-        // Check wall collision
-        if (next.x < 0 || next.x >= mg->board.width ||
-            next.y < 0 || next.y >= mg->board.height)
+        // Pure Client Authoritative: Only local player checks wall/self collisions
+        // Remote players already validated these on their client
+        if (mg->players[i].is_local_player)
         {
-            has_collision[i] = 1;
-            continue;
+            // Check wall collision for local player only
+            if (next.x < 0 || next.x >= mg->board.width ||
+                next.y < 0 || next.y >= mg->board.height)
+            {
+                has_collision[i] = 1;
+                continue;
+            }
         }
 
-        // Check collision with any snake (including self)
+        // Check collision with any snake
         for (int j = 0; j < MAX_PLAYERS; j++)
         {
             if (!mg->players[j].alive)
@@ -278,13 +314,17 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
 
             if (i == j)
             {
-                // Check against own body (excluding tail if not growing)
-                if (snake_occupies_excluding_tail(snake, next))
+                // Only local player checks self-collision (remote already validated)
+                if (mg->players[i].is_local_player)
                 {
-                    has_collision[i] = 1;
-                    printf("DEBUG: Player %d collision with own body at (%d,%d)\n", i, next.x, next.y);
-                    fflush(stdout);
-                    break;
+                    // Check against own body (excluding tail if not growing)
+                    if (snake_occupies_excluding_tail(snake, next))
+                    {
+                        has_collision[i] = 1;
+                        printf("DEBUG: Player %d collision with own body at (%d,%d)\n", i, next.x, next.y);
+                        fflush(stdout);
+                        break;
+                    }
                 }
             }
             else
@@ -317,7 +357,7 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
         }
     }
 
-    // Third pass: Handle food consumption and move all snakes
+    // Third pass: Handle food consumption and move snakes
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
         if (!mg->players[i].alive || mg->players[i].death_state != GAME_RUNNING)
@@ -325,15 +365,18 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
 
         MultiplayerPlayer *player = &mg->players[i];
 
-        // Mark snakes with collisions as dying
+        // Mark snakes with collisions as dying (applies to all players)
         if (has_collision[i])
         {
             player->death_state = GAME_DYING;
+            // Clear input buffer to prevent queued inputs from being processed
+            input_buffer_clear(&player->input);
             continue;
         }
 
-        // Handle food consumption
-        int ate_food = will_eat_food[i];
+        // Handle food consumption ONLY if no collision (don't eat food when dying)
+        // Re-check food eating here to ensure we don't eat if we just collided
+        int ate_food = will_eat_food[i] && !has_collision[i];
 
         if (ate_food)
         {
@@ -361,29 +404,38 @@ void multiplayer_game_update(MultiplayerGame_s *mg)
             player->food_eaten_this_frame = 1;
             player->combo_expiry_time = 1;  // Placeholder, updated by host timer
 
-            // Check main board food
-            if (vec2_equal(next, mg->board.food))
+            // Only host generates new food - clients wait for food position from network
+            if (is_host)
             {
-                spawn_food_avoiding_snakes(mg, &mg->board.food);
-            }
-            else
-            {
-                // Check additional food items (from dead snakes)
-                for (int f = 0; f < mg->food_count; f++)
+                // Check main board food
+                if (vec2_equal(next, mg->board.food))
                 {
-                    if (vec2_equal(next, mg->food[f]))
+                    spawn_food_avoiding_snakes(mg, &mg->board.food);
+                }
+                else
+                {
+                    // Check additional food items (from dead snakes)
+                    for (int f = 0; f < mg->food_count; f++)
                     {
-                        // Remove this food by replacing with last food
-                        mg->food[f] = mg->food[mg->food_count - 1];
-                        mg->food_count--;
-                        break;
+                        if (vec2_equal(next, mg->food[f]))
+                        {
+                            // Remove this food by replacing with last food
+                            mg->food[f] = mg->food[mg->food_count - 1];
+                            mg->food_count--;
+                            break;
+                        }
                     }
                 }
             }
         }
 
-        // Move snake
-        snake_step_to(&player->snake, next_positions[i], ate_food);
+        // Pure Client Authoritative: Only move local player's snake
+        // Remote players' positions are updated directly from network (via handle_client_input)
+        if (player->is_local_player)
+        {
+            snake_step_to(&player->snake, next_positions[i], ate_food);
+        }
+        // else: Remote player - position already updated from network, don't move here
     }
 }
 
@@ -400,7 +452,14 @@ void multiplayer_game_change_direction(MultiplayerGame_s *mg, int player_index, 
 
 int multiplayer_game_is_over(const MultiplayerGame_s *mg)
 {
-    return mg->active_players <= 1;
+    // Count players with lives remaining
+    int players_with_lives = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (mg->players[i].joined && mg->players[i].lives > 0) {
+            players_with_lives++;
+        }
+    }
+    return players_with_lives <= 1;
 }
 
 int multiplayer_game_update_death_animations(MultiplayerGame_s *mg)
@@ -409,7 +468,9 @@ int multiplayer_game_update_death_animations(MultiplayerGame_s *mg)
 
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
-        if (mg->players[i].death_state == GAME_DYING)
+        // Only process death animation for LOCAL player (each client manages their own)
+        // Remote players' death animations are handled on their own clients
+        if (mg->players[i].death_state == GAME_DYING && mg->players[i].is_local_player)
         {
             MultiplayerPlayer *player = &mg->players[i];
             Snake *snake = &player->snake;
@@ -418,7 +479,11 @@ int multiplayer_game_update_death_animations(MultiplayerGame_s *mg)
             if (snake->length > 0)
             {
                 Vec2 head = snake_head(snake);
-                multiplayer_game_add_food(mg, head);
+                // Only host adds food directly (clients send notifications handled elsewhere)
+                if (mg->is_host) {
+                    multiplayer_game_add_food(mg, head);
+                }
+                // Note: Client food notifications are sent in main.c death animation handler
             }
 
             // Remove head segment

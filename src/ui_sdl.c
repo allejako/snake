@@ -1632,11 +1632,6 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
                         ui->cell, (board_h + 2) * ui->cell,
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
 
-    // Render food (orange like singleplayer)
-    ui_draw_filled_rect(ui->ren, ox + (1 + mg->board.food.x) * ui->cell,
-                        oy + (1 + mg->board.food.y) * ui->cell,
-                        ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
-
     // Player colors (head, body)
     typedef struct
     {
@@ -1715,14 +1710,16 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
                 break;
             }
 
-            char hud1[64], hud2[64];
+            char hud1[64], hud2[64], hud3[64];
 
             snprintf(hud1, sizeof(hud1), "%s%s", mg->players[p].name,
                      mg->players[p].is_local_player ? " (YOU)" : "");
-            snprintf(hud2, sizeof(hud2), "%s", mg->players[p].ready ? "READY" : "Not Ready");
+            snprintf(hud2, sizeof(hud2), "Wins: %d", mg->players[p].wins);
+            snprintf(hud3, sizeof(hud3), "%s", mg->players[p].ready ? "READY" : "Not Ready");
 
             text_draw(ui->ren, &ui->text, x, y, hud1);
             text_draw(ui->ren, &ui->text, x, y + 18, hud2);
+            text_draw(ui->ren, &ui->text, x, y + 36, hud3);
         }
 
         // Instructions at bottom center
@@ -1795,11 +1792,6 @@ void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *c
     ui_draw_filled_rect(ui->ren, ox + (board_w + 1) * ui->cell, oy,
                         ui->cell, (board_h + 2) * ui->cell,
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Render food
-    ui_draw_filled_rect(ui->ren, ox + (1 + mg->board.food.x) * ui->cell,
-                        oy + (1 + mg->board.food.y) * ui->cell,
-                        ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
 
     // Player colors
     typedef struct
@@ -2000,23 +1992,61 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
             char hud1[64], hud2[64], hud3[64];
 
+            snprintf(hud1, sizeof(hud1), "%s%s", mg->players[p].name,
+                     mg->players[p].is_local_player ? " (YOU)" : "");
+            snprintf(hud2, sizeof(hud2), "Score: %d | Wins: %d",
+                     mg->players[p].score, mg->players[p].wins);
+
             if (mg->players[p].is_local_player)
             {
-                snprintf(hud1, sizeof(hud1), "%s (YOU)", mg->players[p].name);
-                snprintf(hud2, sizeof(hud2), "Score: %d", mg->players[p].score);
                 snprintf(hud3, sizeof(hud3), "Lives: %d | Combo x%d",
                          mg->players[p].lives, mg->players[p].combo_count);
             }
             else
             {
-                snprintf(hud1, sizeof(hud1), "%s", mg->players[p].name);
-                snprintf(hud2, sizeof(hud2), "Score: %d", mg->players[p].score);
                 snprintf(hud3, sizeof(hud3), "Lives: %d", mg->players[p].lives);
             }
 
             text_draw(ui->ren, &ui->text, x, y, hud1);
             text_draw(ui->ren, &ui->text, x, y + 18, hud2);
             text_draw(ui->ren, &ui->text, x, y + 36, hud3);
+
+            // Draw combo bar if player has an active combo
+            if (mg->players[p].combo_count > 0 && mg->players[p].combo_expiry_time > 0)
+            {
+                unsigned int current_time = SDL_GetTicks();
+                int bar_width = 150;
+                int bar_height = 6;
+                int bar_y = y + 54;
+
+                // Calculate time remaining
+                float time_remaining = 0.0f;
+                if (current_time < mg->players[p].combo_expiry_time) {
+                    time_remaining = (float)(mg->players[p].combo_expiry_time - current_time) / (float)mg->combo_window_ms;
+                }
+
+                // Clamp to [0, 1]
+                if (time_remaining < 0.0f) time_remaining = 0.0f;
+                if (time_remaining > 1.0f) time_remaining = 1.0f;
+
+                int filled_width = (int)(bar_width * time_remaining);
+
+                // Draw bar background (dark gray)
+                SDL_Rect bar_bg = {x, bar_y, bar_width, bar_height};
+                SDL_SetRenderDrawColor(ui->ren, 40, 40, 40, 255);
+                SDL_RenderFillRect(ui->ren, &bar_bg);
+
+                // Draw filled portion (based on player color from multiplayer_game.h)
+                if (filled_width > 0) {
+                    SDL_Rect bar_fill = {x, bar_y, filled_width, bar_height};
+                    SDL_SetRenderDrawColor(ui->ren, PLAYER_COLORS[p].r, PLAYER_COLORS[p].g, PLAYER_COLORS[p].b, 255);
+                    SDL_RenderFillRect(ui->ren, &bar_fill);
+                }
+
+                // Draw bar border (white)
+                SDL_SetRenderDrawColor(ui->ren, 255, 255, 255, 255);
+                SDL_RenderDrawRect(ui->ren, &bar_bg);
+            }
         }
 
         // Instructions at bottom
@@ -2063,6 +2093,22 @@ void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ct
 
     text_sdl_draw_centered(ui->text, ui->ren, "GAME OVER", ui->w / 2, ui->h / 4, 2.0f, 255, 0, 0);
 
+    // Find the winner (player who is alive or has highest score)
+    int winner_idx = -1;
+    int highest_score = -1;
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (ctx->game->players[i].joined)
+        {
+            if (ctx->game->players[i].alive ||
+                (winner_idx == -1 && ctx->game->players[i].score > highest_score))
+            {
+                winner_idx = i;
+                highest_score = ctx->game->players[i].score;
+            }
+        }
+    }
+
     // Show final standings
     int y = ui->h / 3 + 40;
     const PlayerColor *colors = (const PlayerColor *)PLAYER_COLORS;
@@ -2071,15 +2117,25 @@ void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ct
         if (ctx->game->players[i].joined)
         {
             char player_text[128];
-            snprintf(player_text, sizeof(player_text), "Player %d: Score %d, Combo Best %d",
-                     i + 1, ctx->game->players[i].score, ctx->game->players[i].combo_best);
-            text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 200, y, 0.9f,
-                          colors[i].r, colors[i].g, colors[i].b);
+            const char *name_suffix = ctx->game->players[i].is_local_player ? " (YOU)" : "";
+            int is_winner = (i == winner_idx);
+
+            if (is_winner) {
+                snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d  << WINNER! >>",
+                         ctx->game->players[i].name, name_suffix,
+                         ctx->game->players[i].score, ctx->game->players[i].combo_best);
+                // Draw winner in bright gold/yellow
+                text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 250, y, 1.0f, 255, 215, 0);
+            } else {
+                snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d",
+                         ctx->game->players[i].name, name_suffix,
+                         ctx->game->players[i].score, ctx->game->players[i].combo_best);
+                text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 200, y, 0.9f,
+                              colors[i].r, colors[i].g, colors[i].b);
+            }
             y += 30;
         }
     }
-
-    text_sdl_draw_centered(ui->text, ui->ren, "Press any key to continue", ui->w / 2, ui->h - 80, 0.8f, 150, 150, 150);
 
     SDL_RenderPresent(ui->ren);
 }

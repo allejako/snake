@@ -16,7 +16,7 @@
 #define TICK_MS 95                   // Default game tick duration in milliseconds
 #define MENU_FRAME_DELAY_MS 16       // ~60 FPS for menus
 #define GAME_FRAME_DELAY_MS 1        // Minimal delay for gameplay
-#define GAMEOVER_DISPLAY_MS 2000     // How long to show game over screen
+#define GAMEOVER_DISPLAY_MS 3000     // How long to show game over screen
 
 // Speed curve parameters (singleplayer)
 #define SPEED_START_MS 95.0f         // Starting tick time
