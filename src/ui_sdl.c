@@ -4,7 +4,7 @@
 #include "scoreboard.h"
 #include "game.h"
 
-#define LAYOUT_PADDING_CELLS 4  // Local override for layout padding
+#define LAYOUT_PADDING_CELLS 4 // Local override for layout padding
 #define DEFAULT_FONT_SIZE 18
 
 // Helper macros for setting colors from constants
@@ -15,6 +15,7 @@
 #define SET_COLOR_FOOD(ren) SDL_SetRenderDrawColor(ren, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B, 255)
 #define SET_COLOR_SNAKE_HEAD(ren) SDL_SetRenderDrawColor(ren, COLOR_SNAKE_HEAD_R, COLOR_SNAKE_HEAD_G, COLOR_SNAKE_HEAD_B, 255)
 #define SET_COLOR_SNAKE_BODY(ren) SDL_SetRenderDrawColor(ren, COLOR_SNAKE_BODY_R, COLOR_SNAKE_BODY_G, COLOR_SNAKE_BODY_B, 255)
+
 static void compute_layout(UiSdl *ui, const Board *board, int *out_origin_x, int *out_origin_y)
 {
     // Draw a board with 1-cell border, but in pixels
@@ -74,6 +75,9 @@ UiSdl *ui_sdl_create(const char *title, int window_w, int window_h)
 
     ui->w = window_w;
     ui->h = window_h;
+    ui->last_combo_count = 0;
+    ui->last_combo_tier = 0;
+    ui->combo_flash_until_ms = 0;
 
     ui->win = SDL_CreateWindow(
         title,
@@ -110,7 +114,26 @@ UiSdl *ui_sdl_create(const char *title, int window_w, int window_h)
     {
         fprintf(stderr, "Could not load font: %s\n", TTF_GetError());
     }
+    SDL_RendererInfo info;
+    SDL_GetRendererInfo(ui->ren, &info);
 
+    ui->world_target = NULL;
+    ui->fx_last_frame_ms = 0;
+    speedfx_init(&ui->speedfx, ui->w, ui->h);
+
+    if (info.flags & SDL_RENDERER_TARGETTEXTURE)
+    {
+        ui->world_target = SDL_CreateTexture(
+            ui->ren,
+            SDL_PIXELFORMAT_RGBA8888,
+            SDL_TEXTUREACCESS_TARGET,
+            ui->w,
+            ui->h);
+        if (ui->world_target)
+        {
+            SDL_SetTextureBlendMode(ui->world_target, SDL_BLENDMODE_BLEND);
+        }
+    }
     return ui;
 }
 
@@ -124,6 +147,12 @@ void ui_sdl_destroy(UiSdl *ui)
         SDL_DestroyWindow(ui->win);
     if (ui->text_ok)
         text_shutdown(&ui->text);
+    if (ui->world_target)
+    {
+        SDL_DestroyTexture(ui->world_target);
+        ui->world_target = NULL;
+    }
+
     TTF_Quit();
     free(ui);
     SDL_Quit();
@@ -152,7 +181,7 @@ int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction
             }
 
             // Check dynamic directional bindings for Player 1
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action >= 0)
             {
                 *out_has_dir = 1;
@@ -181,16 +210,16 @@ int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
     return 1;
 }
-void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
+static void ui_sdl_draw_world(UiSdl *ui, const Game *g)
 {
     int ox, oy;
     compute_layout(ui, &g->board, &ox, &oy);
 
-    // bakgrund
+    // background clear
     SET_COLOR_BG_DARK(ui->ren);
     SDL_RenderClear(ui->ren);
 
-    // board area (bakgrund)
+    // board area background
     SDL_Rect board_bg = cell_rect(ui, ox, oy, 0, 0);
     board_bg.w = (g->board.width + 2) * ui->cell;
     board_bg.h = (g->board.height + 2) * ui->cell;
@@ -198,26 +227,19 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
     ui_draw_filled_rect(ui->ren, board_bg.x, board_bg.y, board_bg.w, board_bg.h,
                         COLOR_BG_BOARD_R, COLOR_BG_BOARD_G, COLOR_BG_BOARD_B);
 
-    // ram (1-cell tjock)
-    // top
+    // border (1 cell thick)
     ui_draw_filled_rect(ui->ren, ox, oy, (g->board.width + 2) * ui->cell, ui->cell,
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // bottom
     ui_draw_filled_rect(ui->ren, ox, oy + (g->board.height + 1) * ui->cell,
                         (g->board.width + 2) * ui->cell, ui->cell,
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // left
     ui_draw_filled_rect(ui->ren, ox, oy, ui->cell, (g->board.height + 2) * ui->cell,
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // right
     ui_draw_filled_rect(ui->ren, ox + (g->board.width + 1) * ui->cell, oy,
                         ui->cell, (g->board.height + 2) * ui->cell,
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
 
-    // Food (in board coords -> +1 for border)
+    // Food
     ui_draw_filled_rect(ui->ren, ox + (1 + g->board.food.x) * ui->cell,
                         oy + (1 + g->board.food.y) * ui->cell,
                         ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
@@ -231,11 +253,33 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
 
         if (i == 0)
             ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                COLOR_SNAKE_HEAD_R, COLOR_SNAKE_HEAD_G, COLOR_SNAKE_HEAD_B);
+                                             COLOR_SNAKE_HEAD_R, COLOR_SNAKE_HEAD_G, COLOR_SNAKE_HEAD_B);
         else
             ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                COLOR_SNAKE_BODY_R, COLOR_SNAKE_BODY_G, COLOR_SNAKE_BODY_B);
+                                             COLOR_SNAKE_BODY_R, COLOR_SNAKE_BODY_G, COLOR_SNAKE_BODY_B);
     }
+}
+static void ui_sdl_draw_hud(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
+{
+    int ox, oy;
+    compute_layout(ui, &g->board, &ox, &oy);
+
+    // board rect for overlay center calculations
+    SDL_Rect board_bg = cell_rect(ui, ox, oy, 0, 0);
+    float hx = 0.0f, hy = 0.0f;
+    if (g->snake.length > 0)
+    {
+        Vec2 head = g->snake.segments[0];
+        hx = (float)(ox + (1 + head.x) * ui->cell + ui->cell * 0.5f);
+        hy = (float)(oy + (1 + head.y) * ui->cell + ui->cell * 0.5f);
+    }
+    else
+    {
+        hx = (float)(ox + board_bg.w * 0.5f);
+        hy = (float)(oy + board_bg.h * 0.5f);
+    }
+    board_bg.w = (g->board.width + 2) * ui->cell;
+    board_bg.h = (g->board.height + 2) * ui->cell;
 
     if (ui->text_ok)
     {
@@ -243,49 +287,61 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
         snprintf(hud, sizeof(hud), "Score: %d", g->score);
         text_draw(ui->ren, &ui->text, ox, oy - 28, hud);
 
-        // Debug info - show game speed (bottom right corner)
         if (debug_mode)
         {
             char debug_speed[64];
             char debug_combo[64];
-            int debug_y = ui->h - 50;  // Position from bottom
-            int debug_x = ui->w - 250; // Position from right
+            int debug_y = ui->h - 50;
+            int debug_x = ui->w - 250;
 
             snprintf(debug_speed, sizeof(debug_speed), "Speed: %ums/tick", current_tick_ms);
             text_draw(ui->ren, &ui->text, debug_x, debug_y, debug_speed);
 
-            // Calculate current combo window ticks
             int combo_window_ticks = g->combo_window_ms / current_tick_ms;
             snprintf(debug_combo, sizeof(debug_combo), "Combo Window: %d ticks", combo_window_ticks);
             text_draw(ui->ren, &ui->text, debug_x, debug_y + 22, debug_combo);
         }
+        int tier = game_get_combo_tier(g->combo_count);
 
         // Combo display
         if (g->combo_count > 0)
         {
             unsigned int now = (unsigned int)SDL_GetTicks();
 
-            // Calculate bar width to match board + border size
             int bar_width = (g->board.width + 2) * ui->cell;
             int board_center_x = ox + bar_width / 2;
-
-            // Position the bar centered between top of screen and top of game border
             int bar_x = ox;
             int bar_y = (oy / 2) - (COMBO_BAR_HEIGHT / 2);
 
-            // Draw combo timer bar (if active)
+            int prev_count = ui->last_combo_count;
+            int prev_tier = ui->last_combo_tier;
+
+            int combo_increased = (g->combo_count > prev_count);
+            int tier_up = (tier > prev_tier);
+
+            if (combo_increased)
+            {
+                // ui->combo_flash_until_ms = now + (tier_up ? 200 : 120);
+
+                // small punch always, stronger on tier-up
+                if (tier_up)
+                {
+                    speedfx_combo_punch(&ui->speedfx, (float)tier, 0.2f);
+                }
+
+                float amp = tier_up ? 1.0f : 0.6f;
+                speedfx_combo_ring(&ui->speedfx, hx, hy, tier, amp);
+            }
+
             if (now < g->combo_expiry_time)
             {
                 float time_remaining = (float)(g->combo_expiry_time - now);
                 float time_total = (float)g->combo_window_ms;
                 float fill_ratio = time_remaining / time_total;
 
-                // Background (empty bar)
                 ui_draw_filled_rect(ui->ren, bar_x, bar_y, bar_width, COMBO_BAR_HEIGHT,
                                     COLOR_COMBO_BG_R, COLOR_COMBO_BG_G, COLOR_COMBO_BG_B);
 
-                // Filled portion (timer) - color based on tier
-                int tier = game_get_combo_tier(g->combo_count);
                 int fill_width = (int)(bar_width * fill_ratio);
 
                 if (tier >= 7)
@@ -310,28 +366,30 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
                     ui_draw_filled_rect(ui->ren, bar_x, bar_y, fill_width, COMBO_BAR_HEIGHT,
                                         COLOR_COMBO_T1_R, COLOR_COMBO_T1_G, COLOR_COMBO_T1_B);
 
-                // Border
                 SDL_Rect bg_rect = {bar_x, bar_y, bar_width, COMBO_BAR_HEIGHT};
                 SDL_SetRenderDrawColor(ui->ren, COLOR_TEXT_R, COLOR_TEXT_G, COLOR_TEXT_B, 255);
                 SDL_RenderDrawRect(ui->ren, &bg_rect);
             }
-
-            // Draw combo text centered above the bar
             char combo_text[32];
             snprintf(combo_text, sizeof(combo_text), "COMBO x%d", g->combo_count);
             int combo_text_x = board_center_x - COMBO_TEXT_CENTER_OFFSET;
             int combo_text_y = bar_y - DEFAULT_FONT_SIZE - COMBO_TEXT_SPACING;
             text_draw(ui->ren, &ui->text, combo_text_x, combo_text_y, combo_text);
 
-            // Draw multiplier text centered below the bar
             int multiplier = game_get_combo_multiplier(g->combo_count);
             char mult_text[32];
             snprintf(mult_text, sizeof(mult_text), "%dx Mult", multiplier);
             int mult_text_x = board_center_x - COMBO_TEXT_CENTER_OFFSET;
             int mult_text_y = bar_y + COMBO_BAR_HEIGHT + COMBO_TEXT_SPACING;
             text_draw(ui->ren, &ui->text, mult_text_x, mult_text_y, mult_text);
+            ui->last_combo_count = g->combo_count;
+            ui->last_combo_tier = tier;
         }
-
+        else
+        {
+            ui->last_combo_count = g->combo_count;
+            ui->last_combo_tier = tier;
+        }
         text_draw(ui->ren, &ui->text, ox, oy + (g->board.height + 2) * ui->cell + 8,
                   "Use keybinds to move | ESC: pause");
     }
@@ -348,7 +406,108 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
 }
 void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
 {
-    ui_sdl_draw_game(ui, g, player_name, debug_mode, current_tick_ms);
+    // dt
+    unsigned int now = (unsigned int)SDL_GetTicks();
+    float dt = 1.0f / 60.0f;
+    if (ui->fx_last_frame_ms != 0)
+    {
+        dt = (float)(now - ui->fx_last_frame_ms) / 1000.0f;
+        if (dt < 0.0f)
+            dt = 0.0f;
+        if (dt > 0.1f)
+            dt = 0.1f;
+    }
+    ui->fx_last_frame_ms = now;
+
+    speedfx_set_viewport(&ui->speedfx, ui->w, ui->h);
+
+    // Compute snake head origin in screen coords (for particle spawn)
+    float origin_x = 0.0f, origin_y = 0.0f;
+    {
+        int ox, oy;
+        compute_layout(ui, &g->board, &ox, &oy);
+        if (g->snake.length > 0)
+        {
+            Vec2 head = g->snake.segments[0];
+            origin_x = (float)(ox + (1 + head.x) * ui->cell + ui->cell * 0.5f);
+            origin_y = (float)(oy + (1 + head.y) * ui->cell + ui->cell * 0.5f);
+        }
+        else
+        {
+            origin_x = (float)(ui->w / 2);
+            origin_y = (float)(ui->h / 2);
+        }
+    }
+
+    // Compute board rect in screen coords (matches your board_bg)
+    SDL_Rect board_rect;
+    {
+        int ox, oy;
+        compute_layout(ui, &g->board, &ox, &oy);
+
+        SDL_Rect board_bg = cell_rect(ui, ox, oy, 0, 0);
+        board_bg.w = (g->board.width + 2) * ui->cell;
+        board_bg.h = (g->board.height + 2) * ui->cell;
+        board_rect = board_bg;
+    }
+
+    SDL_Rect head_cell = {0, 0, 0, 0};
+    {
+        int ox, oy;
+        compute_layout(ui, &g->board, &ox, &oy);
+
+        if (g->snake.length > 0)
+        {
+            Vec2 head = g->snake.segments[0];
+            head_cell.x = ox + (1 + head.x) * ui->cell;
+            head_cell.y = oy + (1 + head.y) * ui->cell;
+            head_cell.w = ui->cell;
+            head_cell.h = ui->cell;
+        }
+    }
+
+    speedfx_update(
+        &ui->speedfx,
+        dt,
+        current_tick_ms,
+        SPEED_START_MS,
+        SPEED_FLOOR_MS,
+        board_rect);
+
+    // Render world to texture if supported; otherwise render directly
+    if (ui->world_target)
+    {
+        SDL_SetRenderTarget(ui->ren, ui->world_target);
+        ui_sdl_draw_world(ui, g);
+
+        SDL_SetRenderTarget(ui->ren, NULL);
+
+        // Clear window
+        SDL_SetRenderDrawBlendMode(ui->ren, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
+        SDL_RenderClear(ui->ren);
+
+        // Copy world with shake offset (translation only)
+        SDL_Rect dst = {0, 0, ui->w, ui->h};
+        speedfx_apply_shake_rect(&ui->speedfx, &dst);
+        SDL_RenderCopy(ui->ren, ui->world_target, NULL, &dst);
+    }
+    else
+    {
+        // Fallback: no target texture support.
+        // We draw the world normally (no global shake in this path).
+        // If you want shake here too, you must add offsets to all drawing calls.
+        ui_sdl_draw_world(ui, g);
+    }
+
+    // FX overlays on top
+    speedfx_render_particles(ui->ren, &ui->speedfx);
+    speedfx_render_rings(ui->ren, &ui->speedfx,
+                         COLOR_SNAKE_HEAD_R, COLOR_SNAKE_HEAD_G, COLOR_SNAKE_HEAD_B);
+
+    // HUD should be stable (not shaken)
+    ui_sdl_draw_hud(ui, g, player_name, debug_mode, current_tick_ms);
+
     SDL_RenderPresent(ui->ren);
 }
 
@@ -561,7 +720,7 @@ UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Settings *settings, int *out_quit
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -599,8 +758,8 @@ void ui_sdl_render_menu(UiSdl *ui, const Settings *settings, int selected_index)
         }
 
         // Build instruction string with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings,SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings,SETTING_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Quit", up, down);
         ui_draw_text_centered(ui->ren, &ui->text, center_x, ui->h - 40, instructions);
@@ -653,7 +812,7 @@ UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Settings *settings, int *out_qu
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return UI_PAUSE_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -668,7 +827,7 @@ UiPauseAction ui_sdl_poll_pause(UiSdl *ui, const Settings *settings, int *out_qu
 void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name, int selected_index, int debug_mode, unsigned int current_tick_ms)
 {
     // Render the game frame behind the pause overlay
-    ui_sdl_draw_game(ui, g, player_name, debug_mode, current_tick_ms);
+    ui_sdl_render(ui, g, player_name, debug_mode, current_tick_ms);
 
     // Draw a semi-transparent overlay
     SDL_SetRenderDrawBlendMode(ui->ren, SDL_BLENDMODE_BLEND);
@@ -708,7 +867,7 @@ void ui_sdl_render_pause_menu(UiSdl *ui, const Game *g, const char *player_name,
 void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
 {
     // render the game behind
-    ui_sdl_draw_game(ui, g, player_name, debug_mode, current_tick_ms);
+    ui_sdl_render(ui, g, player_name, debug_mode, current_tick_ms);
 
     SDL_SetRenderDrawBlendMode(ui->ren, SDL_BLENDMODE_BLEND);
     ui_draw_filled_rect_alpha(ui->ren, 0, 0, ui->w, ui->h, 0, 0, 0, 170);
@@ -760,8 +919,8 @@ void ui_sdl_render_options_menu(UiSdl *ui, const Settings *settings, int selecte
         }
 
         // Build instruction string with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings,SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings,SETTING_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         ui_draw_text_centered(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -797,7 +956,7 @@ UiMenuAction ui_sdl_poll_options_menu(UiSdl *ui, const Settings *settings, int *
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -830,8 +989,8 @@ void ui_sdl_render_keybind_player_select(UiSdl *ui, const Settings *settings, in
         }
 
         // Build instruction string with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings,SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings,SETTING_ACTION_DOWN));
+        const char *up = settings_key_name(settings_get_key(settings, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, SETTING_ACTION_DOWN));
         char instructions[128];
         snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
         ui_draw_text_centered(ui->ren, &ui->text, cx, ui->h - 40, instructions);
@@ -867,7 +1026,7 @@ UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Settings *settin
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -1051,10 +1210,10 @@ void ui_sdl_render_sound_settings(UiSdl *ui, const Settings *settings, const Aud
         }
 
         // Build instruction strings with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings,SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings,SETTING_ACTION_DOWN));
-        const char *left = settings_key_name(settings_get_key(settings,SETTING_ACTION_LEFT));
-        const char *right = settings_key_name(settings_get_key(settings,SETTING_ACTION_RIGHT));
+        const char *up = settings_key_name(settings_get_key(settings, SETTING_ACTION_UP));
+        const char *down = settings_key_name(settings_get_key(settings, SETTING_ACTION_DOWN));
+        const char *left = settings_key_name(settings_get_key(settings, SETTING_ACTION_LEFT));
+        const char *right = settings_key_name(settings_get_key(settings, SETTING_ACTION_RIGHT));
 
         char instructions1[128];
         char instructions2[64];
@@ -1095,7 +1254,7 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -1203,7 +1362,7 @@ UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out
             }
 
             // Dynamic navigation using Player 1's bindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return UI_MENU_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -1439,7 +1598,7 @@ void ui_sdl_render_lobby_browser(UiSdl *ui, json_t *lobby_list, int selected_ind
         size_t count = json_array_size(lobby_list);
         int start_y = 120;
 
-        for (size_t i = 0; i < count && i < 10; i++)  // Show max 10 lobbies
+        for (size_t i = 0; i < count && i < 10; i++) // Show max 10 lobbies
         {
             json_t *lobby = json_array_get(lobby_list, i);
             json_t *session_json = json_object_get(lobby, "session");
@@ -1660,12 +1819,12 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
             if (i == 0)
             {
                 ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                    colors.head.r, colors.head.g, colors.head.b);
+                                                 colors.head.r, colors.head.g, colors.head.b);
             }
             else
             {
                 ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                    colors.body.r, colors.body.g, colors.body.b);
+                                                 colors.body.r, colors.body.g, colors.body.b);
             }
         }
     }
@@ -1801,8 +1960,7 @@ void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *c
         {{60, 220, 120, 255}, {35, 160, 90, 255}},
         {{60, 160, 255, 255}, {30, 100, 200, 255}},
         {{255, 220, 60, 255}, {200, 170, 30, 255}},
-        {{255, 60, 220, 255}, {200, 30, 160, 255}}
-    };
+        {{255, 60, 220, 255}, {200, 30, 160, 255}}};
 
     // Render snakes
     for (int p = 0; p < MAX_PLAYERS; p++)
@@ -1821,12 +1979,12 @@ void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *c
             if (i == 0)
             {
                 ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                    colors.head.r, colors.head.g, colors.head.b);
+                                                 colors.head.r, colors.head.g, colors.head.b);
             }
             else
             {
                 ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                    colors.body.r, colors.body.g, colors.body.b);
+                                                 colors.body.r, colors.body.g, colors.body.b);
             }
         }
     }
@@ -1946,12 +2104,12 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
             if (i == 0)
             {
                 ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                    colors.head.r, colors.head.g, colors.head.b);
+                                                 colors.head.r, colors.head.g, colors.head.b);
             }
             else
             {
                 ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                    colors.body.r, colors.body.g, colors.body.b);
+                                                 colors.body.r, colors.body.g, colors.body.b);
             }
         }
     }
@@ -1974,7 +2132,7 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
                 x = pad;
                 y = pad;
                 break;
-            case 1: // P2: top-right
+            case 1:              // P2: top-right
                 x = ui->w - 200; // Reserve space for text
                 y = pad;
                 break;
@@ -2019,13 +2177,16 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
                 // Calculate time remaining
                 float time_remaining = 0.0f;
-                if (current_time < mg->players[p].combo_expiry_time) {
+                if (current_time < mg->players[p].combo_expiry_time)
+                {
                     time_remaining = (float)(mg->players[p].combo_expiry_time - current_time) / (float)mg->combo_window_ms;
                 }
 
                 // Clamp to [0, 1]
-                if (time_remaining < 0.0f) time_remaining = 0.0f;
-                if (time_remaining > 1.0f) time_remaining = 1.0f;
+                if (time_remaining < 0.0f)
+                    time_remaining = 0.0f;
+                if (time_remaining > 1.0f)
+                    time_remaining = 1.0f;
 
                 int filled_width = (int)(bar_width * time_remaining);
 
@@ -2035,7 +2196,8 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
                 SDL_RenderFillRect(ui->ren, &bar_bg);
 
                 // Draw filled portion (based on player color from multiplayer_game.h)
-                if (filled_width > 0) {
+                if (filled_width > 0)
+                {
                     SDL_Rect bar_fill = {x, bar_y, filled_width, bar_height};
                     SDL_SetRenderDrawColor(ui->ren, PLAYER_COLORS[p].r, PLAYER_COLORS[p].g, PLAYER_COLORS[p].b, 255);
                     SDL_RenderFillRect(ui->ren, &bar_fill);
@@ -2070,7 +2232,7 @@ Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int
             SDL_Keycode key = e.key.keysym.sym;
 
             // Use Player 1's keybindings
-            int action = settings_find_action(settings,key);
+            int action = settings_find_action(settings, key);
             if (action == SETTING_ACTION_UP)
                 return DIR_UP;
             if (action == SETTING_ACTION_DOWN)
@@ -2118,13 +2280,16 @@ void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ct
             const char *name_suffix = ctx->game->players[i].is_local_player ? " (YOU)" : "";
             int is_winner = (i == winner_idx);
 
-            if (is_winner) {
+            if (is_winner)
+            {
                 snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d  << WINNER! >>",
                          ctx->game->players[i].name, name_suffix,
                          ctx->game->players[i].score, ctx->game->players[i].combo_best);
                 // Draw winner in bright gold/yellow
                 text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 250, y, 1.0f, 255, 215, 0);
-            } else {
+            }
+            else
+            {
                 snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d",
                          ctx->game->players[i].name, name_suffix,
                          ctx->game->players[i].score, ctx->game->players[i].combo_best);

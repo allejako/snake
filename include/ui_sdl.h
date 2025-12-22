@@ -10,7 +10,7 @@
 #include "scoreboard.h"
 #include "text_sdl.h"
 #include "settings.h"
-
+#include "speedfx.h"
 
 typedef struct
 {
@@ -23,9 +23,19 @@ typedef struct
     // rendering scale
     int cell; // pixel size per cell
     int pad;  // padding around board
+
+    // Speedfx
+    SDL_Texture *world_target; // render-to-texture for world (shake applies here)
+    SDL_Texture *snake_target;
+    SpeedFX speedfx;
+    unsigned int fx_last_frame_ms;
+    int last_combo_count;
+    int last_combo_tier;
+    Uint32 combo_flash_until_ms; // HUD flash timer
 } UiSdl;
 
-typedef enum {
+typedef enum
+{
     UI_MENU_NONE = 0,
     UI_MENU_UP,
     UI_MENU_DOWN,
@@ -38,7 +48,8 @@ typedef enum {
 void ui_sdl_render_menu(UiSdl *ui, const Settings *settings, int selected_index);
 UiMenuAction ui_sdl_poll_menu(UiSdl *ui, const Settings *settings, int *out_quit);
 
-typedef enum {
+typedef enum
+{
     UI_PAUSE_NONE = 0,
     UI_PAUSE_UP,
     UI_PAUSE_DOWN,
