@@ -103,7 +103,6 @@ typedef struct
     int *menu_selected;           // Main menu cursor position
     int *options_menu_selected;   // Options menu cursor position
     int *multiplayer_menu_selected; // Multiplayer menu cursor position
-    int *keybind_current_player;  // Currently configuring player (0-3)
     int *keybind_current_action;  // Currently configuring action (0-4)
     int *sound_selected;          // Sound settings cursor position
     unsigned int *current_tick_ms;    // Runtime-variable tick speed
@@ -268,12 +267,12 @@ static void handle_keybinds_binding_state(AppContext *ctx)
         SettingAction action = (SettingAction)*ctx->keybind_current_action;
 
         // Set binding with auto-swap
-        settings_set_key_with_swap(ctx->settings, *ctx->keybind_current_player, action, pressed_key);
+        settings_set_key_with_swap(ctx->settings, action, pressed_key);
 
         // Move to next action
         (*ctx->keybind_current_action)++;
 
-        if (*ctx->keybind_current_action >= SETTING_ACTION_COUNT)
+        if (*ctx->keybind_current_action >= SETTINGS_ACTION_COUNT)
         {
             // All actions bound, save and return
             settings_save(ctx->settings);
@@ -284,7 +283,7 @@ static void handle_keybinds_binding_state(AppContext *ctx)
 
     // Render current binding prompt
     SettingAction current = (SettingAction)*ctx->keybind_current_action;
-    ui_sdl_render_keybind_prompt(ctx->ui, ctx->settings, *ctx->keybind_current_player, current);
+    ui_sdl_render_keybind_prompt(ctx->ui, ctx->settings, current);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -1202,15 +1201,18 @@ static void handle_singleplayer_state(AppContext *ctx)
         }
     }
 
-    // Handle death animation
-    if (ctx->game->state == GAME_DYING && (now - *ctx->last_tick) >= *ctx->current_tick_ms)
+    // Handle death animation (fixed 50ms per segment)
+    if (ctx->game->state == GAME_DYING && (now - *ctx->last_tick) >= 50)
     {
         *ctx->last_tick = now;
-        do
+
+        // Remove one segment and play explosion sound
+        if (ctx->audio)
         {
-            fprintf(stderr, "DEATH: triggering explosion sfx\n");
-            audio_sdl_play_sound(ctx->audio, "explosion");        
-        } while (game_update_death_animation(ctx->game) && !audio_sdl_is_sound_playing(ctx->audio, "explosion"));
+            audio_sdl_play_sound(ctx->audio, "explosion");
+        }
+
+        game_update_death_animation(ctx->game);
     }
 
     // Transition to game over screen on GAME_OVER
@@ -1229,7 +1231,7 @@ static void handle_singleplayer_state(AppContext *ctx)
             scoreboard_save(ctx->sb);
 
             // Play high score sound
-            if (ctx->audio)
+            if (ctx->audio && scoreboard_qualifies_for_top_n(ctx->sb, ctx->game->score, 1))
             {
                 audio_sdl_play_sound(ctx->audio, "highscore");
             }
@@ -1393,7 +1395,6 @@ int main(int argc, char *argv[])
     int menu_selected = 0;
     int options_menu_selected = 0;
     int multiplayer_menu_selected = 0;
-    int keybind_current_player = 0;
     int keybind_current_action = 0;
     int sound_selected = 0;
     unsigned int current_tick_ms = TICK_MS;
@@ -1447,7 +1448,6 @@ int main(int argc, char *argv[])
         .menu_selected = &menu_selected,
         .options_menu_selected = &options_menu_selected,
         .multiplayer_menu_selected = &multiplayer_menu_selected,
-        .keybind_current_player = &keybind_current_player,
         .keybind_current_action = &keybind_current_action,
         .sound_selected = &sound_selected,
         .current_tick_ms = &current_tick_ms,

@@ -6,10 +6,9 @@
 #include <sys/types.h>
 #include <errno.h>
 
-// Default keybindings for all 4 players
-static const SDL_Keycode DEFAULT_BINDINGS[SETTINGS_MAX_PLAYERS][SETTINGS_ACTIONS_PER_PLAYER] = {
-    // Player 1
-    {SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT, SDLK_SPACE}
+// Default keybindings
+static const SDL_Keycode DEFAULT_BINDINGS[SETTINGS_ACTION_COUNT] = {
+    SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT, SDLK_SPACE
 };
 
 // Helper: convert action enum to string
@@ -67,10 +66,8 @@ void settings_set_defaults(Settings *s) {
     s->effects_volume = 50;
 
     // Set default keybindings
-    for (int p = 0; p < SETTINGS_MAX_PLAYERS; p++) {
-        for (int a = 0; a < SETTINGS_ACTIONS_PER_PLAYER; a++) {
-            s->keybindings[p][a] = DEFAULT_BINDINGS[p][a];
-        }
+    for (int a = 0; a < SETTINGS_ACTION_COUNT; a++) {
+        s->keybindings[a] = DEFAULT_BINDINGS[a];
     }
 }
 
@@ -80,9 +77,10 @@ int settings_load(Settings *s) {
         return 0;  // File doesn't exist, use defaults
     }
 
-    int current_player = -1;
     char line[256];
     int in_general_section = 0;
+    int in_audio_section = 0;
+    int in_keybindings_section = 0;
 
     while (fgets(line, sizeof(line), f)) {
         // Remove newline
@@ -95,24 +93,16 @@ int settings_load(Settings *s) {
 
         // Check for section headers
         if (line[0] == '[') {
+            in_general_section = 0;
+            in_audio_section = 0;
+            in_keybindings_section = 0;
+
             if (strstr(line, "[General]")) {
                 in_general_section = 1;
-                current_player = -1;
             } else if (strstr(line, "[Audio]")) {
-                in_general_section = 0;
-                current_player = -2;  // Special marker for audio section
-            } else if (strstr(line, "[Player1]")) {
-                in_general_section = 0;
-                current_player = 0;
-            } else if (strstr(line, "[Player2]")) {
-                in_general_section = 0;
-                current_player = 1;
-            } else if (strstr(line, "[Player3]")) {
-                in_general_section = 0;
-                current_player = 2;
-            } else if (strstr(line, "[Player4]")) {
-                in_general_section = 0;
-                current_player = 3;
+                in_audio_section = 1;
+            } else if (strstr(line, "[Keybindings]")) {
+                in_keybindings_section = 1;
             }
             continue;
         }
@@ -135,8 +125,7 @@ int settings_load(Settings *s) {
                 strncpy(s->profile_name, value, SETTINGS_MAX_PROFILE_NAME - 1);
                 s->profile_name[SETTINGS_MAX_PROFILE_NAME - 1] = '\0';
             }
-        } else if (current_player == -2) {
-            // Audio section
+        } else if (in_audio_section) {
             if (strcmp(key, "music_volume") == 0) {
                 s->music_volume = atoi(value);
                 if (s->music_volume < 0) s->music_volume = 0;
@@ -146,15 +135,14 @@ int settings_load(Settings *s) {
                 if (s->effects_volume < 0) s->effects_volume = 0;
                 if (s->effects_volume > 100) s->effects_volume = 100;
             }
-        } else if (current_player >= 0 && current_player < SETTINGS_MAX_PLAYERS) {
-            // Keybindings section
+        } else if (in_keybindings_section) {
             int action = string_to_action(key);
             if (action < 0) continue;
 
             SDL_Keycode keycode = SDL_GetKeyFromName(value);
             if (keycode == SDLK_UNKNOWN) continue;
 
-            s->keybindings[current_player][action] = keycode;
+            s->keybindings[action] = keycode;
         }
     }
 
@@ -186,20 +174,15 @@ int settings_save(const Settings *s) {
     fprintf(f, "effects_volume=%d\n", s->effects_volume);
     fprintf(f, "\n");
 
-    // Keybindings sections
-    for (int p = 0; p < SETTINGS_MAX_PLAYERS; p++) {
-        fprintf(f, "[Player%d]\n", p + 1);
+    // Keybindings section
+    fprintf(f, "[Keybindings]\n");
+    for (int a = 0; a < SETTINGS_ACTION_COUNT; a++) {
+        const char *action_name = action_to_string((SettingAction)a);
+        const char *key_name = SDL_GetKeyName(s->keybindings[a]);
 
-        for (int a = 0; a < SETTINGS_ACTIONS_PER_PLAYER; a++) {
-            const char *action_name = action_to_string((SettingAction)a);
-            const char *key_name = SDL_GetKeyName(s->keybindings[p][a]);
-
-            if (action_name && key_name) {
-                fprintf(f, "%s=%s\n", action_name, key_name);
-            }
+        if (action_name && key_name) {
+            fprintf(f, "%s=%s\n", action_name, key_name);
         }
-
-        fprintf(f, "\n");
     }
 
     fclose(f);
@@ -210,25 +193,21 @@ int settings_has_profile(const Settings *s) {
     return s->profile_name[0] != '\0';
 }
 
-SDL_Keycode settings_get_key(const Settings *s, int player, SettingAction action) {
-    if (player < 0 || player >= SETTINGS_MAX_PLAYERS) return SDLK_UNKNOWN;
-    if (action < 0 || action >= SETTING_ACTION_COUNT) return SDLK_UNKNOWN;
+SDL_Keycode settings_get_key(const Settings *s, SettingAction action) {
+    if (action < 0 || action >= SETTINGS_ACTION_COUNT) return SDLK_UNKNOWN;
 
-    return s->keybindings[player][action];
+    return s->keybindings[action];
 }
 
-void settings_set_key(Settings *s, int player, SettingAction action, SDL_Keycode key) {
-    if (player < 0 || player >= SETTINGS_MAX_PLAYERS) return;
-    if (action < 0 || action >= SETTING_ACTION_COUNT) return;
+void settings_set_key(Settings *s, SettingAction action, SDL_Keycode key) {
+    if (action < 0 || action >= SETTINGS_ACTION_COUNT) return;
 
-    s->keybindings[player][action] = key;
+    s->keybindings[action] = key;
 }
 
-int settings_find_action(const Settings *s, int player, SDL_Keycode key) {
-    if (player < 0 || player >= SETTINGS_MAX_PLAYERS) return -1;
-
-    for (int a = 0; a < SETTING_ACTION_COUNT; a++) {
-        if (s->keybindings[player][a] == key) {
+int settings_find_action(const Settings *s, SDL_Keycode key) {
+    for (int a = 0; a < SETTINGS_ACTION_COUNT; a++) {
+        if (s->keybindings[a] == key) {
             return a;
         }
     }
@@ -240,26 +219,25 @@ const char *settings_key_name(SDL_Keycode key) {
     return SDL_GetKeyName(key);
 }
 
-void settings_set_key_with_swap(Settings *s, int player, SettingAction action, SDL_Keycode new_key) {
-    if (player < 0 || player >= SETTINGS_MAX_PLAYERS) return;
-    if (action < 0 || action >= SETTING_ACTION_COUNT) return;
+void settings_set_key_with_swap(Settings *s, SettingAction action, SDL_Keycode new_key) {
+    if (action < 0 || action >= SETTINGS_ACTION_COUNT) return;
 
     // Get the old key for this action
-    SDL_Keycode old_key = s->keybindings[player][action];
+    SDL_Keycode old_key = s->keybindings[action];
 
     // Find if the new key is already bound to another action
-    for (int i = 0; i < SETTING_ACTION_COUNT; i++) {
+    for (int i = 0; i < SETTINGS_ACTION_COUNT; i++) {
         if (i == (int)action) continue;  // Skip the action we're setting
 
-        if (s->keybindings[player][i] == new_key) {
+        if (s->keybindings[i] == new_key) {
             // Conflict found! Swap the keys
-            s->keybindings[player][i] = old_key;
+            s->keybindings[i] = old_key;
             break;
         }
     }
 
     // Set the new binding
-    s->keybindings[player][action] = new_key;
+    s->keybindings[action] = new_key;
 }
 
 const char *settings_action_name(SettingAction action) {

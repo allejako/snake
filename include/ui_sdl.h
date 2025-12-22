@@ -79,7 +79,7 @@ void ui_sdl_render_keybind_player_select(UiSdl *ui, const Settings *settings, in
 UiMenuAction ui_sdl_poll_keybind_player_select(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Keybind binding UI
-void ui_sdl_render_keybind_prompt(UiSdl *ui, const Settings *settings, int player_index, SettingAction action);
+void ui_sdl_render_keybind_prompt(UiSdl *ui, const Settings *settings, SettingAction action);
 SDL_Keycode ui_sdl_poll_keybind_input(UiSdl *ui, int *out_cancel, int *out_quit);
 
 // Sound settings - forward declare AudioSdl to avoid circular dependency
