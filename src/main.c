@@ -6,8 +6,7 @@
 #include "constants.h"
 #include "config.h"
 #include "game.h"
-#include "multiplayer_game.h"
-#include "online_multiplayer.h"
+#include "multiplayer.h"
 #include "common.h"
 #include "scoreboard.h"
 #include "ui_sdl.h"
@@ -107,8 +106,7 @@ typedef struct
     int *sound_selected;          // Sound settings cursor position
     unsigned int *current_tick_ms;    // Runtime-variable tick speed
     Game *game;                   // Game state
-    MultiplayerGame_s *mp_game;   // Multiplayer game state
-    OnlineMultiplayerContext *online_ctx; // Online multiplayer context
+    Multiplayer *mp;              // Multiplayer state (unified game + network)
     mpapi *mpapi_inst;            // MPAPI instance
     InputBuffer *input;           // Input buffer for gameplay
     char *player_name;            // Current player name
@@ -391,7 +389,7 @@ static void handle_multiplayer_online_menu_state(AppContext *ctx)
         case 0: // Host Game
             // Host directly (always private)
             const char *player_name = (ctx->settings->profile_name[0] != '\0') ? ctx->settings->profile_name : "Player";
-            if (online_multiplayer_host(ctx->online_ctx, 1, ctx->config->mp_board_width, ctx->config->mp_board_height, player_name) == MPAPI_OK)
+            if (multiplayer_host(ctx->mp, 1, ctx->config->mp_board_width, ctx->config->mp_board_height, player_name) == MPAPI_OK)
             {
                 *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
             }
@@ -427,20 +425,20 @@ static void handle_multiplayer_session_input_state(AppContext *ctx)
     {
         // User entered a session ID
         const char *player_name = (ctx->settings->profile_name[0] != '\0') ? ctx->settings->profile_name : "Player";
-        if (online_multiplayer_join(ctx->online_ctx, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height, player_name) == MPAPI_OK)
+        if (multiplayer_join(ctx->mp, session_id, ctx->config->mp_board_width, ctx->config->mp_board_height, player_name) == MPAPI_OK)
         {
             *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
         }
         else
         {
             // Failed to join - check if we have an error message to display
-            if (ctx->online_ctx->connection_lost)
+            if (ctx->mp->connection_lost)
             {
                 // Display error message
                 SDL_SetRenderDrawColor(ctx->ui->ren, 0, 0, 0, 255);
                 SDL_RenderClear(ctx->ui->ren);
                 text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 - 40, "Failed to Join");
-                text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 + 10, ctx->online_ctx->error_message);
+                text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 + 10, ctx->mp->error_message);
                 text_draw_center(ctx->ui->ren, &ctx->ui->text, ctx->ui->w / 2, ctx->ui->h / 2 + 60, "Press any key to continue");
                 SDL_RenderPresent(ctx->ui->ren);
 
@@ -460,7 +458,7 @@ static void handle_multiplayer_session_input_state(AppContext *ctx)
                 }
 
                 // Reset connection lost flag
-                ctx->online_ctx->connection_lost = 0;
+                ctx->mp->connection_lost = 0;
             }
 
             // Go back to menu
@@ -488,7 +486,7 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
     }
 
     // Check if game started (for clients receiving start command from host)
-    if (ctx->online_ctx->state == ONLINE_STATE_COUNTDOWN)
+    if (ctx->mp->state == ONLINE_STATE_COUNTDOWN)
     {
         *ctx->countdown_start = SDL_GetTicks();
         *ctx->state = APP_MULTIPLAYER_ONLINE_COUNTDOWN;
@@ -512,10 +510,10 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
         // Give time for message to send before destroying
         SDL_Delay(100);
 
-        if (ctx->online_ctx)
+        if (ctx->mp)
         {
-            online_multiplayer_destroy(ctx->online_ctx);
-            ctx->online_ctx = NULL;
+            multiplayer_destroy(ctx->mp);
+            ctx->mp = NULL;
         }
         if (ctx->mpapi_inst)
         {
@@ -524,13 +522,12 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
         }
 
         // Recreate for next session
-        ctx->online_ctx = online_multiplayer_create();
+        ctx->mp = multiplayer_create();
         ctx->mpapi_inst = mpapi_create(ctx->config->server_host, ctx->config->server_port, UUID);
-        
-        if (ctx->online_ctx && ctx->mpapi_inst)
+
+        if (ctx->mp && ctx->mpapi_inst)
         {
-            ctx->online_ctx->api = ctx->mpapi_inst;
-            ctx->online_ctx->game = ctx->mp_game;
+            ctx->mp->api = ctx->mpapi_inst;
         }
 
         *ctx->state = APP_MULTIPLAYER_ONLINE_MENU;
@@ -538,22 +535,22 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
     else if (action == UI_MENU_USE)
     {
         // Player pressed USE key to toggle ready status
-        online_multiplayer_toggle_ready(ctx->online_ctx);
+        multiplayer_toggle_ready(ctx->mp);
     }
     else if (action == UI_MENU_SELECT)
     {
-        printf("DEBUG: ENTER pressed in lobby, is_host=%d\n", ctx->online_ctx->game->is_host);
+        printf("DEBUG: ENTER pressed in lobby, is_host=%d\n", ctx->mp->is_host);
         fflush(stdout);
 
-        if (ctx->online_ctx->game->is_host)
+        if (ctx->mp->is_host)
         {
             // Host pressed ENTER to start game - only allowed if all players are ready
-            if (online_multiplayer_all_players_ready(ctx->online_ctx))
+            if (multiplayer_all_players_ready(ctx->mp))
             {
                 printf("DEBUG: All players ready, starting game\n");
                 fflush(stdout);
                 *ctx->current_tick_ms = TICK_MS; // Reset to default speed for multiplayer
-                online_multiplayer_start_game(ctx->online_ctx);
+                multiplayer_start_game(ctx->mp);
                 *ctx->countdown_start = SDL_GetTicks();
                 *ctx->state = APP_MULTIPLAYER_ONLINE_COUNTDOWN;
             }
@@ -565,7 +562,7 @@ static void handle_multiplayer_online_lobby_state(AppContext *ctx)
         }
     }
 
-    ui_sdl_render_online_lobby(ctx->ui, ctx->online_ctx);
+    ui_sdl_render_online_lobby(ctx->ui, ctx->mp);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -578,30 +575,30 @@ static void handle_multiplayer_online_countdown_state(AppContext *ctx)
     unsigned int current_time = SDL_GetTicks();
 
     // Calculate countdown based on synchronized game start timestamp
-    int ms_remaining = (int)ctx->online_ctx->game_start_timestamp - (int)current_time;
+    int ms_remaining = (int)ctx->mp->game_start_timestamp - (int)current_time;
     int countdown = (ms_remaining + 999) / 1000; // Round up to nearest second
 
     // Debug output (only print occasionally to avoid spam)
     static int debug_counter = 0;
     if (debug_counter++ % 30 == 0) {
         printf("DEBUG COUNTDOWN: is_host=%d, game_start_timestamp=%u, current_time=%u, ms_remaining=%d, countdown=%d\n",
-               ctx->online_ctx->game->is_host, ctx->online_ctx->game_start_timestamp, current_time, ms_remaining, countdown);
+               ctx->mp->is_host, ctx->mp->game_start_timestamp, current_time, ms_remaining, countdown);
         fflush(stdout);
     }
 
     if (ms_remaining <= 0)
     {
         // Start game at the synchronized timestamp
-        ctx->online_ctx->state = ONLINE_STATE_PLAYING;
+        ctx->mp->state = ONLINE_STATE_PLAYING;
         *ctx->state = APP_MULTIPLAYER_ONLINE_GAME;
-        *ctx->last_tick = ctx->online_ctx->game_start_timestamp; // Use synchronized start time for first tick
+        *ctx->last_tick = ctx->mp->game_start_timestamp; // Use synchronized start time for first tick
         printf("DEBUG: Game starting at synchronized timestamp %u (current: %u)\n",
-               ctx->online_ctx->game_start_timestamp, current_time);
+               ctx->mp->game_start_timestamp, current_time);
         fflush(stdout);
         return;
     }
 
-    ui_sdl_render_online_countdown(ctx->ui, ctx->online_ctx, countdown);
+    ui_sdl_render_online_countdown(ctx->ui, ctx->mp, countdown);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -619,18 +616,18 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
     }
 
     // Validate and send input for client
-    if (input_dir != -1 && !ctx->online_ctx->game->is_host)
+    if (input_dir != -1 && !ctx->mp->is_host)
     {
-        int local_idx = ctx->online_ctx->game->local_player_index;
+        int local_idx = ctx->mp->local_player_index;
         if (local_idx >= 0 && local_idx < MAX_PLAYERS)
         {
             // Validate input locally using the same logic as singleplayer
-            Direction current_dir = ctx->online_ctx->game->players[local_idx].snake.dir;
+            Direction current_dir = ctx->mp->players[local_idx].snake.dir;
 
             // Check if buffer has a pending direction
             Direction last_dir = current_dir;
-            if (ctx->online_ctx->has_pending_input) {
-                last_dir = ctx->online_ctx->pending_input;
+            if (ctx->mp->has_pending_input) {
+                last_dir = ctx->mp->pending_input;
             }
 
             // Validate: not same, not opposite
@@ -642,9 +639,9 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
             if (input_dir != last_dir && !is_opposite)
             {
                 // Valid input - store as pending and send to host
-                ctx->online_ctx->pending_input = input_dir;
-                ctx->online_ctx->has_pending_input = 1;
-                online_multiplayer_client_send_input(ctx->online_ctx, input_dir);
+                ctx->mp->pending_input = input_dir;
+                ctx->mp->has_pending_input = 1;
+                multiplayer_client_send_input(ctx->mp, input_dir);
             }
         }
     }
@@ -652,15 +649,15 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
     unsigned int current_time = SDL_GetTicks();
 
     // Host updates game logic
-    if (ctx->online_ctx->game->is_host)
+    if (ctx->mp->is_host)
     {
         // Process host's own input using input buffer (same as singleplayer)
         if (input_dir != -1)
         {
-            int local_idx = ctx->online_ctx->game->local_player_index;
+            int local_idx = ctx->mp->local_player_index;
             if (local_idx >= 0 && local_idx < MAX_PLAYERS)
             {
-                MultiplayerPlayer *local_player = &ctx->online_ctx->game->players[local_idx];
+                MultiplayerPlayer *local_player = &ctx->mp->players[local_idx];
                 // Use the input buffer (same as singleplayer!)
                 input_buffer_push(&local_player->input, input_dir, local_player->snake.dir);
             }
@@ -676,9 +673,9 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
 
         if (current_time - last_position_send >= position_send_interval)
         {
-            int local_idx = ctx->online_ctx->game->local_player_index;
+            int local_idx = ctx->mp->local_player_index;
             if (local_idx >= 0 && local_idx < MAX_PLAYERS) {
-                MultiplayerPlayer *local_player = &ctx->online_ctx->game->players[local_idx];
+                MultiplayerPlayer *local_player = &ctx->mp->players[local_idx];
                 // Send updates even when dying (include death_state)
                 if (local_player->joined) {
                     // Send position update to host
@@ -695,7 +692,7 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                     json_object_set_new(pos_update, "death_state", json_integer(local_player->death_state));
                     json_object_set_new(pos_update, "alive", json_boolean(local_player->alive));
 
-                    mpapi_game(ctx->online_ctx->api, pos_update, NULL);
+                    mpapi_game(ctx->mp->api, pos_update, NULL);
                     json_decref(pos_update);
                 }
             }
@@ -705,10 +702,10 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
         // Simulate local player's snake using SAME function for both host and client
         if (current_time - *ctx->last_tick >= *ctx->current_tick_ms)
         {
-            int local_idx = ctx->online_ctx->game->local_player_index;
+            int local_idx = ctx->mp->local_player_index;
             if (local_idx >= 0 && local_idx < MAX_PLAYERS) {
-                MultiplayerPlayer *local_player = &ctx->online_ctx->game->players[local_idx];
-                MultiplayerGame_s *game = ctx->online_ctx->game;
+                MultiplayerPlayer *local_player = &ctx->mp->players[local_idx];
+                Multiplayer *mp = ctx->mp;
 
                 // Process input for local player
                 Direction dir;
@@ -724,10 +721,10 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                 int old_length = local_player->snake.length;
 
                 // Both host and client use multiplayer_game_update() for movement
-                multiplayer_game_update(game, game->is_host);
+                multiplayer_game_update(mp, mp->is_host);
 
                 // Join client: send food_eaten notification when snake grows
-                if (!game->is_host && local_player->snake.length > old_length) {
+                if (!mp->is_host && local_player->snake.length > old_length) {
                     // Snake grew, so food was eaten - notify host which food
                     Vec2 head = snake_head(&local_player->snake);
 
@@ -735,7 +732,7 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                     json_object_set_new(food_msg, "food_eaten", json_boolean(1));
                     json_object_set_new(food_msg, "food_x", json_integer(head.x));
                     json_object_set_new(food_msg, "food_y", json_integer(head.y));
-                    mpapi_game(ctx->online_ctx->api, food_msg, NULL);
+                    mpapi_game(ctx->mp->api, food_msg, NULL);
                     json_decref(food_msg);
                 }
 
@@ -746,43 +743,43 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                     }
 
                     // Join client sends death notification to host
-                    if (!game->is_host) {
+                    if (!mp->is_host) {
                         json_t *death_msg = json_object();
                         json_object_set_new(death_msg, "player_died", json_boolean(1));
                         json_object_set_new(death_msg, "lives", json_integer(local_player->lives));
-                        mpapi_game(ctx->online_ctx->api, death_msg, NULL);
+                        mpapi_game(ctx->mp->api, death_msg, NULL);
                         json_decref(death_msg);
                     }
                 }
 
                 // Handle death animations (same for both host and client)
                 // Join client: send food notifications during death animation
-                if (!game->is_host && local_player->death_state == GAME_DYING && local_player->snake.length > 0) {
+                if (!mp->is_host && local_player->death_state == GAME_DYING && local_player->snake.length > 0) {
                     Vec2 head = snake_head(&local_player->snake);
                     json_t *food_msg = json_object();
                     json_object_set_new(food_msg, "food_added", json_boolean(1));
                     json_object_set_new(food_msg, "food_x", json_integer(head.x));
                     json_object_set_new(food_msg, "food_y", json_integer(head.y));
-                    mpapi_game(ctx->online_ctx->api, food_msg, NULL);
+                    mpapi_game(ctx->mp->api, food_msg, NULL);
                     json_decref(food_msg);
                 }
 
-                multiplayer_game_update_death_animations(game);
+                multiplayer_game_update_death_animations(mp);
 
                 // Handle respawns (same for both host and client)
                 if (local_player->death_state == GAME_OVER) {
                     // Client handles own respawn
                     if (local_player->lives > 0) {
                         // Find safe spawn position (client-authoritative)
-                        Vec2 spawn_pos = {game->board.width / 2, game->board.height / 2};  // Default center
+                        Vec2 spawn_pos = {mp->board.width / 2, mp->board.height / 2};  // Default center
 
                         // Try to find a safe position (3x3 area check)
                         int max_attempts = 100;
                         for (int attempt = 0; attempt < max_attempts; attempt++) {
                             int margin = 3;
                             Vec2 candidate = {
-                                margin + (rand() % (game->board.width - 2 * margin)),
-                                margin + (rand() % (game->board.height - 2 * margin))
+                                margin + (rand() % (mp->board.width - 2 * margin)),
+                                margin + (rand() % (mp->board.height - 2 * margin))
                             };
 
                             int safe = 1;
@@ -792,21 +789,21 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
 
                                     // Check all snakes
                                     for (int i = 0; i < MAX_PLAYERS; i++) {
-                                        if (game->players[i].snake.length > 0 &&
-                                            snake_occupies(&game->players[i].snake, check)) {
+                                        if (mp->players[i].snake.length > 0 &&
+                                            snake_occupies(&mp->players[i].snake, check)) {
                                             safe = 0;
                                             break;
                                         }
                                     }
 
                                     // Check main food
-                                    if (vec2_equal(check, game->board.food)) {
+                                    if (vec2_equal(check, mp->board.food)) {
                                         safe = 0;
                                     }
 
                                     // Check death animation food
-                                    for (int f = 0; f < game->food_count; f++) {
-                                        if (vec2_equal(check, game->food[f])) {
+                                    for (int f = 0; f < mp->food_count; f++) {
+                                        if (vec2_equal(check, mp->food[f])) {
                                             safe = 0;
                                             break;
                                         }
@@ -831,12 +828,12 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                         local_player->combo_expiry_time = 0;
 
                         // Join client sends respawn notification to host
-                        if (!game->is_host) {
+                        if (!mp->is_host) {
                             json_t *respawn_msg = json_object();
                             json_object_set_new(respawn_msg, "player_respawned", json_boolean(1));
                             json_object_set_new(respawn_msg, "spawn_x", json_integer(spawn_pos.x));
                             json_object_set_new(respawn_msg, "spawn_y", json_integer(spawn_pos.y));
-                            mpapi_game(ctx->online_ctx->api, respawn_msg, NULL);
+                            mpapi_game(ctx->mp->api, respawn_msg, NULL);
                             json_decref(respawn_msg);
                         }
                     }
@@ -847,16 +844,16 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
                 prev_death_state[local_idx] = local_player->death_state;
 
                 // Host broadcasts state after simulation (before updating last_tick)
-                if (game->is_host) {
-                    online_multiplayer_host_broadcast_state(ctx->online_ctx);
+                if (mp->is_host) {
+                    multiplayer_host_broadcast_state(ctx->mp);
 
                     // Check game over
-                    if (multiplayer_game_is_over(game))
+                    if (multiplayer_game_is_over(mp))
                     {
                         // Send game_over command to all clients
                         json_t *game_over_cmd = json_object();
                         json_object_set_new(game_over_cmd, "command", json_string("game_over"));
-                        mpapi_game(ctx->online_ctx->api, game_over_cmd, NULL);
+                        mpapi_game(ctx->mp->api, game_over_cmd, NULL);
                         json_decref(game_over_cmd);
 
                         *ctx->gameover_start = (unsigned int)SDL_GetTicks();
@@ -878,7 +875,7 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
 
         for (int i = 0; i < MAX_PLAYERS; i++)
         {
-            MultiplayerPlayer *p = &ctx->online_ctx->game->players[i];
+            MultiplayerPlayer *p = &ctx->mp->players[i];
 
             if (!p->joined) {
                 prev_scores[i] = 0;
@@ -911,9 +908,9 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
     }
 
     // Client: Check if game over was received from host
-    if (!ctx->online_ctx->game->is_host)
+    if (!ctx->mp->is_host)
     {
-        if (ctx->online_ctx->state == ONLINE_STATE_GAME_OVER)
+        if (ctx->mp->state == ONLINE_STATE_GAME_OVER)
         {
             printf("DEBUG: Client detected ONLINE_STATE_GAME_OVER, transitioning to APP_MULTIPLAYER_ONLINE_GAMEOVER\n");
             fflush(stdout);
@@ -923,7 +920,7 @@ static void handle_multiplayer_online_game_state(AppContext *ctx)
         }
     }
 
-    ui_sdl_render_online_game(ctx->ui, ctx->online_ctx);
+    ui_sdl_render_online_game(ctx->ui, ctx->mp);
     SDL_Delay(GAME_FRAME_DELAY_MS);
 }
 
@@ -948,12 +945,12 @@ static void handle_multiplayer_online_gameover_state(AppContext *ctx)
     if (elapsed >= 3000)
     {
         // Return to online lobby
-        online_multiplayer_reset_ready_states(ctx->online_ctx);
-        ctx->online_ctx->state = ONLINE_STATE_LOBBY;
+        multiplayer_reset_ready_states(ctx->mp);
+        ctx->mp->state = ONLINE_STATE_LOBBY;
         *ctx->state = APP_MULTIPLAYER_ONLINE_LOBBY;
     }
 
-    ui_sdl_render_online_gameover(ctx->ui, ctx->online_ctx);
+    ui_sdl_render_online_gameover(ctx->ui, ctx->mp);
     SDL_Delay(MENU_FRAME_DELAY_MS);
 }
 
@@ -1248,16 +1245,10 @@ int main(int argc, char *argv[])
     srand((unsigned int)time(NULL));
 
     // Parse command-line arguments
-    int enable_audio = 1; // Audio enabled by default
     int debug_mode = 0;   // Debug mode disabled by default
     for (int i = 1; i < argc; i++)
     {
-        if (strcmp(argv[i], "--no-audio") == 0 || strcmp(argv[i], "-na") == 0)
-        {
-            enable_audio = 0;
-            fprintf(stderr, "Audio disabled via command-line flag\n");
-        }
-        else if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0)
+        if (strcmp(argv[i], "--debug") == 0 || strcmp(argv[i], "-d") == 0)
         {
             debug_mode = 1;
             fprintf(stderr, "Debug mode enabled\n");
@@ -1267,7 +1258,6 @@ int main(int argc, char *argv[])
             printf("Snake - Snake Game\n");
             printf("Usage: %s [options]\n", argv[0]);
             printf("Options:\n");
-            printf("  --no-audio, -na    Disable audio (useful for WSL2)\n");
             printf("  --debug, -d        Enable debug mode (shows game speed)\n");
             printf("  --help, -h         Show this help message\n");
             return 0;
@@ -1275,12 +1265,9 @@ int main(int argc, char *argv[])
     }
 
     // Set SDL audio driver hint for better WSL2/Linux compatibility
-    if (enable_audio)
-    {
 #ifdef __linux__
-        SDL_setenv("SDL_AUDIODRIVER", "pulseaudio", 0);
+    SDL_setenv("SDL_AUDIODRIVER", "pulseaudio", 0);
 #endif
-    }
 
     // Load game configuration
     GameConfig game_config;
@@ -1305,69 +1292,62 @@ int main(int argc, char *argv[])
         settings_save(&settings); // Create default file
     }
 
-    // Initialize audio system (only if enabled)
-    AudioSdl *audio = NULL;
-    if (enable_audio)
+    // Initialize audio system
+    AudioSdl *audio = audio_sdl_create();
+    if (!audio)
     {
-        audio = audio_sdl_create();
-        if (!audio)
-        {
-            fprintf(stderr, "Warning: Failed to initialize audio system\n");
-        }
-        else
-        {
-            // Apply volume settings from unified settings
-            audio_sdl_set_music_volume(audio, settings.music_volume);
-            audio_sdl_set_effects_volume(audio, settings.effects_volume);
-
-            if (audio_sdl_load_music(audio, "assets/music/background.wav"))
-            {
-                if (!audio_sdl_is_music_playing(audio))
-                {
-                    audio_sdl_play_music(audio, -1); // Play music if not already playing
-                }
-            }
-            else
-            {
-                fprintf(stderr, "Warning: Failed to load background music\n");
-            }
-
-            // Load sound effects (using WAV for better compatibility)
-            if (!audio_sdl_load_sound(audio, "assets/audio/hitmarker.wav", "explosion"))
-            {
-                fprintf(stderr, "Warning: Failed to load explosion sound effect\n");
-            }
-
-            // Load combo sound effects (7 tiers)
-            const char *combo_files[] = {
-                "assets/audio/Combo1.wav",
-                "assets/audio/Combo2.wav",
-                "assets/audio/Combo3.wav",
-                "assets/audio/Combo4.wav",
-                "assets/audio/Combo5.wav",
-                "assets/audio/Combo6.wav",
-                "assets/audio/Combo7.wav"
-            };
-            for (int i = 0; i < 7; i++)
-            {
-                char name[16];
-                snprintf(name, sizeof(name), "combo%d", i + 1);
-                if (!audio_sdl_load_sound(audio, combo_files[i], name))
-                {
-                    fprintf(stderr, "Warning: Failed to load %s\n", combo_files[i]);
-                }
-            }
-
-            // Load high score sound effect
-            if (!audio_sdl_load_sound(audio, "assets/audio/Highscore.wav", "highscore"))
-            {
-                fprintf(stderr, "Warning: Failed to load highscore sound effect\n");
-            }
-        }
+        fprintf(stderr, "Warning: Failed to initialize audio system\n");
+        fprintf(stderr, "To disable audio, set both volumes to 0 in Options > Sound Settings\n");
     }
     else
     {
-        fprintf(stderr, "Audio system disabled via command-line option\n");
+        // Apply volume settings from unified settings
+        audio_sdl_set_music_volume(audio, settings.music_volume);
+        audio_sdl_set_effects_volume(audio, settings.effects_volume);
+
+        if (audio_sdl_load_music(audio, "assets/music/background.wav"))
+        {
+            if (!audio_sdl_is_music_playing(audio))
+            {
+                audio_sdl_play_music(audio, -1); // Play music if not already playing
+            }
+        }
+        else
+        {
+            fprintf(stderr, "Warning: Failed to load background music\n");
+        }
+
+        // Load sound effects (using WAV for better compatibility)
+        if (!audio_sdl_load_sound(audio, "assets/audio/hitmarker.wav", "explosion"))
+        {
+            fprintf(stderr, "Warning: Failed to load explosion sound effect\n");
+        }
+
+        // Load combo sound effects (7 tiers)
+        const char *combo_files[] = {
+            "assets/audio/Combo1.wav",
+            "assets/audio/Combo2.wav",
+            "assets/audio/Combo3.wav",
+            "assets/audio/Combo4.wav",
+            "assets/audio/Combo5.wav",
+            "assets/audio/Combo6.wav",
+            "assets/audio/Combo7.wav"
+        };
+        for (int i = 0; i < 7; i++)
+        {
+            char name[16];
+            snprintf(name, sizeof(name), "combo%d", i + 1);
+            if (!audio_sdl_load_sound(audio, combo_files[i], name))
+            {
+                fprintf(stderr, "Warning: Failed to load %s\n", combo_files[i]);
+            }
+        }
+
+        // Load high score sound effect
+        if (!audio_sdl_load_sound(audio, "assets/audio/Highscore.wav", "highscore"))
+        {
+            fprintf(stderr, "Warning: Failed to load highscore sound effect\n");
+        }
     }
 
     // scoreboard persistent
@@ -1400,25 +1380,23 @@ int main(int argc, char *argv[])
     unsigned int current_tick_ms = TICK_MS;
 
     Game game;
-    MultiplayerGame_s mp_game;
-    OnlineMultiplayerContext *online_ctx = online_multiplayer_create();
-    if (!online_ctx)
+    Multiplayer *mp = multiplayer_create();
+    if (!mp)
     {
-        fprintf(stderr, "Failed to create online multiplayer context\n");
+        fprintf(stderr, "Failed to create multiplayer context\n");
         return 1;
     }
 
-    // Initialize mpapi instance and connect to online context
+    // Initialize mpapi instance and connect to multiplayer context
     // The identifier must be exactly 36 characters (UUID format)
     mpapi *mpapi_instance = mpapi_create(game_config.server_host, game_config.server_port, UUID);
     if (!mpapi_instance)
     {
         fprintf(stderr, "Failed to create mpapi instance\n");
-        online_multiplayer_destroy(online_ctx);
+        multiplayer_destroy(mp);
         return 1;
     }
-    online_ctx->api = mpapi_instance;
-    online_ctx->game = &mp_game;
+    mp->api = mpapi_instance;
 
     InputBuffer input;
     input_buffer_init(&input);
@@ -1452,8 +1430,7 @@ int main(int argc, char *argv[])
         .sound_selected = &sound_selected,
         .current_tick_ms = &current_tick_ms,
         .game = &game,
-        .mp_game = &mp_game,
-        .online_ctx = online_ctx,
+        .mp = mp,
         .mpapi_inst = mpapi_instance,
         .input = &input,
         .player_name = player_name,
@@ -1520,10 +1497,10 @@ int main(int argc, char *argv[])
     // Save settings before cleanup
     settings_save(&settings);
 
-    // Cleanup online multiplayer context (use context pointers in case they were recreated)
-    if (ctx.online_ctx)
+    // Cleanup multiplayer context (use context pointers in case they were recreated)
+    if (ctx.mp)
     {
-        online_multiplayer_destroy(ctx.online_ctx);
+        multiplayer_destroy(ctx.mp);
     }
 
     if (ctx.mpapi_inst)

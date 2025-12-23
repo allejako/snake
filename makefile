@@ -5,7 +5,8 @@ SDL_CFLAGS := $(shell sdl2-config --cflags)
 SDL_LIBS := $(shell sdl2-config --libs)
 TTF_CFLAGS := $(shell pkg-config --cflags SDL2_ttf)
 TTF_LIBS   := $(shell pkg-config --libs SDL2_ttf)
-# SDL_mixer removed - using simple_audio instead for better WSL2 compatibility
+MIXER_CFLAGS := $(shell pkg-config --cflags SDL2_mixer)
+MIXER_LIBS   := $(shell pkg-config --libs SDL2_mixer)
 
 SRC_DIR := src
 BUILD_DIR := build
@@ -33,11 +34,11 @@ all: $(BIN)
 
 # ---- Linking ----
 $(BIN): $(ALL_OBJ) | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(ALL_OBJ) -o $@ $(SDL_LIBS) $(TTF_LIBS) $(EXTRA_LIBS)
+	$(CC) $(CFLAGS) $(ALL_OBJ) -o $@ $(SDL_LIBS) $(TTF_LIBS) $(MIXER_LIBS) $(EXTRA_LIBS)
 
 # ---- Compilation: src/foo.c -> build/foo.o ----
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(TTF_CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(TTF_CFLAGS) $(MIXER_CFLAGS) -c $< -o $@
 
 # ---- Compilation: mpapi sources -> build/mpapi_*.o ----
 $(BUILD_DIR)/mpapi_%.o: $(MPAPI_DIR)/%.c | $(BUILD_DIR)

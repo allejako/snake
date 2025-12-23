@@ -65,8 +65,7 @@ void ui_sdl_destroy(UiSdl *ui);
 void ui_sdl_render_options(UiSdl *ui);
 
 // Forward declaration of MultiplayerGame from multiplayer_game.h
-// Include multiplayer_game.h in your source file to use these functions
-typedef struct MultiplayerGame_s MultiplayerGame_s;
+// Include multiplayer.h in your source file to use these functions
 
 int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction *out_dir, int *out_pause);
 
@@ -103,8 +102,8 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int
 void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int combo_best, const Scoreboard *sb, int selected_index);
 UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out_quit);
 
-// Online multiplayer - include the header for OnlineMultiplayerContext
-#include "online_multiplayer.h"
+// Online multiplayer - include the header for Multiplayer
+#include "multiplayer.h"
 
 // Online multiplayer menu (Host/Join selection)
 void ui_sdl_render_multiplayer_online_menu(UiSdl *ui, int selected_index);
@@ -129,18 +128,18 @@ void ui_sdl_render_error(UiSdl *ui, const char *message);
 int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size);
 
 // Online lobby (Waiting for players)
-void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx);
+void ui_sdl_render_online_lobby(UiSdl *ui, const Multiplayer *mp);
 UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Online countdown (3-2-1 countdown)
-void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *ctx, int countdown);
+void ui_sdl_render_online_countdown(UiSdl *ui, const Multiplayer *mp, int countdown);
 
 // Online game (Main gameplay)
-void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx);
+void ui_sdl_render_online_game(UiSdl *ui, const Multiplayer *mp);
 Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Online game over (Final standings)
-void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ctx);
+void ui_sdl_render_online_gameover(UiSdl *ui, const Multiplayer *mp);
 UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit);
 
 #endif

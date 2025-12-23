@@ -200,7 +200,6 @@ int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction
                     *out_dir = DIR_RIGHT;
                     break;
                 case SETTING_ACTION_USE:
-                    // Future functionality
                     break;
                 }
             }
@@ -495,8 +494,6 @@ void ui_sdl_render(UiSdl *ui, const Game *g, const char *player_name, int debug_
     else
     {
         // Fallback: no target texture support.
-        // We draw the world normally (no global shake in this path).
-        // If you want shake here too, you must add offsets to all drawing calls.
         ui_sdl_draw_world(ui, g);
     }
 
@@ -1378,8 +1375,6 @@ UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out
 // Online Multiplayer UI Functions
 // ============================================================================
 
-#include "online_multiplayer.h"
-
 // Helper functions for text rendering with colors (simplified)
 static void text_sdl_draw_centered(TextRenderer text, SDL_Renderer *ren, const char *msg,
                                    int x, int y, float scale, int r, int g, int b)
@@ -1753,16 +1748,14 @@ int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size)
     return 1;
 }
 
-void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
+void ui_sdl_render_online_lobby(UiSdl *ui, const Multiplayer *mp)
 {
-    const MultiplayerGame_s *mg = ctx->game;
-
     // Compute board layout (centered with border) - same as game
     int ox, oy;
-    compute_layout(ui, &mg->board, &ox, &oy);
+    compute_layout(ui, &mp->board, &ox, &oy);
 
-    int board_w = mg->board.width;
-    int board_h = mg->board.height;
+    int board_w = mp->board.width;
+    int board_h = mp->board.height;
 
     // Background
     SET_COLOR_BG_DARK(ui->ren);
@@ -1805,10 +1798,10 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
     // Render snakes for players who are ready
     for (int p = 0; p < MAX_PLAYERS; p++)
     {
-        if (!mg->players[p].joined || !mg->players[p].ready)
+        if (!mp->players[p].joined || !mp->players[p].ready)
             continue;
 
-        const Snake *snake = &mg->players[p].snake;
+        const Snake *snake = &mp->players[p].snake;
         PlayerColor colors = player_colors[p];
 
         for (int i = 0; i < snake->length; i++)
@@ -1837,12 +1830,12 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
         // Show session ID at top center
         char session_text[64];
-        snprintf(session_text, sizeof(session_text), "Session ID: %s", ctx->game->session_id);
+        snprintf(session_text, sizeof(session_text), "Session ID: %s", mp->session_id);
         text_draw_center(ui->ren, &ui->text, ui->w / 2, 20, session_text);
 
         for (int p = 0; p < MAX_PLAYERS; p++)
         {
-            if (!mg->players[p].joined)
+            if (!mp->players[p].joined)
                 continue;
 
             // Corner anchors (x,y)
@@ -1869,10 +1862,10 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
             char hud1[64], hud2[64], hud3[64];
 
-            snprintf(hud1, sizeof(hud1), "%s%s", mg->players[p].name,
-                     mg->players[p].is_local_player ? " (YOU)" : "");
-            snprintf(hud2, sizeof(hud2), "Wins: %d", mg->players[p].wins);
-            snprintf(hud3, sizeof(hud3), "%s", mg->players[p].ready ? "READY" : "Not Ready");
+            snprintf(hud1, sizeof(hud1), "%s%s", mp->players[p].name,
+                     mp->players[p].is_local_player ? " (YOU)" : "");
+            snprintf(hud2, sizeof(hud2), "Wins: %d", mp->players[p].wins);
+            snprintf(hud3, sizeof(hud3), "%s", mp->players[p].ready ? "READY" : "Not Ready");
 
             text_draw(ui->ren, &ui->text, x, y, hud1);
             text_draw(ui->ren, &ui->text, x, y + 18, hud2);
@@ -1882,7 +1875,7 @@ void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayerContext *ctx)
         // Instructions at bottom center
         text_draw_center(ui->ren, &ui->text, ui->w / 2, ui->h / 2,
                          "USE key: Toggle Ready | ESC: Leave");
-        const char *hint = ctx->game->is_host ? "ENTER: Start (when all ready)" : "Waiting for host...";
+        const char *hint = mp->is_host ? "ENTER: Start (when all ready)" : "Waiting for host...";
         text_draw_center(ui->ren, &ui->text, ui->w / 2, ui->h / 2 - 30, hint);
     }
 
@@ -1914,16 +1907,14 @@ UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *ctx, int countdown)
+void ui_sdl_render_online_countdown(UiSdl *ui, const Multiplayer *mp, int countdown)
 {
-    const MultiplayerGame_s *mg = ctx->game;
-
     // Render the game board first (same as lobby/game rendering)
     int ox, oy;
-    compute_layout(ui, &mg->board, &ox, &oy);
+    compute_layout(ui, &mp->board, &ox, &oy);
 
-    int board_w = mg->board.width;
-    int board_h = mg->board.height;
+    int board_w = mp->board.width;
+    int board_h = mp->board.height;
 
     // Background
     SET_COLOR_BG_DARK(ui->ren);
@@ -1965,10 +1956,10 @@ void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *c
     // Render snakes
     for (int p = 0; p < MAX_PLAYERS; p++)
     {
-        if (!mg->players[p].joined)
+        if (!mp->players[p].joined)
             continue;
 
-        const Snake *snake = &mg->players[p].snake;
+        const Snake *snake = &mp->players[p].snake;
         PlayerColor colors = player_colors[p];
 
         for (int i = 0; i < snake->length; i++)
@@ -2011,16 +2002,14 @@ void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *c
     SDL_RenderPresent(ui->ren);
 }
 
-void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
+void ui_sdl_render_online_game(UiSdl *ui, const Multiplayer *mp)
 {
-    const MultiplayerGame_s *mg = ctx->game;
-
     // Compute board layout (centered with border) - same as singleplayer
     int ox, oy;
-    compute_layout(ui, &mg->board, &ox, &oy);
+    compute_layout(ui, &mp->board, &ox, &oy);
 
-    int board_w = mg->board.width;
-    int board_h = mg->board.height;
+    int board_w = mp->board.width;
+    int board_h = mp->board.height;
 
     // Board bounds for mp HUD (in pixels)
     const int pad = 10;
@@ -2062,15 +2051,15 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
                         COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
 
     // Render food (orange like singleplayer)
-    ui_draw_filled_rect(ui->ren, ox + (1 + mg->board.food.x) * ui->cell,
-                        oy + (1 + mg->board.food.y) * ui->cell,
+    ui_draw_filled_rect(ui->ren, ox + (1 + mp->board.food.x) * ui->cell,
+                        oy + (1 + mp->board.food.y) * ui->cell,
                         ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
 
     // Render extra food items
-    for (int i = 0; i < mg->food_count; i++)
+    for (int i = 0; i < mp->food_count; i++)
     {
-        ui_draw_filled_rect(ui->ren, ox + (1 + mg->food[i].x) * ui->cell,
-                            oy + (1 + mg->food[i].y) * ui->cell,
+        ui_draw_filled_rect(ui->ren, ox + (1 + mp->food[i].x) * ui->cell,
+                            oy + (1 + mp->food[i].y) * ui->cell,
                             ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
     }
 
@@ -2090,10 +2079,10 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
     // Render players' snakes
     for (int p = 0; p < MAX_PLAYERS; p++)
     {
-        if (!mg->players[p].joined)
+        if (!mp->players[p].joined)
             continue;
 
-        const Snake *snake = &mg->players[p].snake;
+        const Snake *snake = &mp->players[p].snake;
         PlayerColor colors = player_colors[p];
 
         for (int i = 0; i < snake->length; i++)
@@ -2121,7 +2110,7 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
         for (int p = 0; p < MAX_PLAYERS; p++)
         {
-            if (!mg->players[p].joined)
+            if (!mp->players[p].joined)
                 continue;
 
             // Corner anchors (x,y)
@@ -2148,19 +2137,19 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
             char hud1[64], hud2[64], hud3[64];
 
-            snprintf(hud1, sizeof(hud1), "%s%s", mg->players[p].name,
-                     mg->players[p].is_local_player ? " (YOU)" : "");
+            snprintf(hud1, sizeof(hud1), "%s%s", mp->players[p].name,
+                     mp->players[p].is_local_player ? " (YOU)" : "");
             snprintf(hud2, sizeof(hud2), "Score: %d | Wins: %d",
-                     mg->players[p].score, mg->players[p].wins);
+                     mp->players[p].score, mp->players[p].wins);
 
-            if (mg->players[p].is_local_player)
+            if (mp->players[p].is_local_player)
             {
                 snprintf(hud3, sizeof(hud3), "Lives: %d | Combo x%d",
-                         mg->players[p].lives, mg->players[p].combo_count);
+                         mp->players[p].lives, mp->players[p].combo_count);
             }
             else
             {
-                snprintf(hud3, sizeof(hud3), "Lives: %d", mg->players[p].lives);
+                snprintf(hud3, sizeof(hud3), "Lives: %d", mp->players[p].lives);
             }
 
             text_draw(ui->ren, &ui->text, x, y, hud1);
@@ -2168,7 +2157,7 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
             text_draw(ui->ren, &ui->text, x, y + 36, hud3);
 
             // Draw combo bar if player has an active combo
-            if (mg->players[p].combo_count > 0 && mg->players[p].combo_expiry_time > 0)
+            if (mp->players[p].combo_count > 0 && mp->players[p].combo_expiry_time > 0)
             {
                 unsigned int current_time = SDL_GetTicks();
                 int bar_width = 150;
@@ -2177,9 +2166,9 @@ void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx)
 
                 // Calculate time remaining
                 float time_remaining = 0.0f;
-                if (current_time < mg->players[p].combo_expiry_time)
+                if (current_time < mp->players[p].combo_expiry_time)
                 {
-                    time_remaining = (float)(mg->players[p].combo_expiry_time - current_time) / (float)mg->combo_window_ms;
+                    time_remaining = (float)(mp->players[p].combo_expiry_time - current_time) / (float)mp->combo_window_ms;
                 }
 
                 // Clamp to [0, 1]
@@ -2246,7 +2235,7 @@ Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int
     return -1; // No input
 }
 
-void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ctx)
+void ui_sdl_render_online_gameover(UiSdl *ui, const Multiplayer *mp)
 {
     SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
     SDL_RenderClear(ui->ren);
@@ -2258,13 +2247,13 @@ void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ct
     int highest_score = -1;
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
-        if (ctx->game->players[i].joined)
+        if (mp->players[i].joined)
         {
-            if (ctx->game->players[i].alive ||
-                (winner_idx == -1 && ctx->game->players[i].score > highest_score))
+            if (mp->players[i].alive ||
+                (winner_idx == -1 && mp->players[i].score > highest_score))
             {
                 winner_idx = i;
-                highest_score = ctx->game->players[i].score;
+                highest_score = mp->players[i].score;
             }
         }
     }
@@ -2274,25 +2263,25 @@ void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ct
     const PlayerColor *colors = (const PlayerColor *)PLAYER_COLORS;
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
-        if (ctx->game->players[i].joined)
+        if (mp->players[i].joined)
         {
             char player_text[128];
-            const char *name_suffix = ctx->game->players[i].is_local_player ? " (YOU)" : "";
+            const char *name_suffix = mp->players[i].is_local_player ? " (YOU)" : "";
             int is_winner = (i == winner_idx);
 
             if (is_winner)
             {
                 snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d  << WINNER! >>",
-                         ctx->game->players[i].name, name_suffix,
-                         ctx->game->players[i].score, ctx->game->players[i].combo_best);
+                         mp->players[i].name, name_suffix,
+                         mp->players[i].score, mp->players[i].combo_best);
                 // Draw winner in bright gold/yellow
                 text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 250, y, 1.0f, 255, 215, 0);
             }
             else
             {
                 snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d",
-                         ctx->game->players[i].name, name_suffix,
-                         ctx->game->players[i].score, ctx->game->players[i].combo_best);
+                         mp->players[i].name, name_suffix,
+                         mp->players[i].score, mp->players[i].combo_best);
                 text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 200, y, 0.9f,
                               colors[i].r, colors[i].g, colors[i].b);
             }
