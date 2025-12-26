@@ -14,13 +14,14 @@ static int running = 0;
 static Scene scene_registry[13];
 
 void scene_master_init(UiSdl *ui, Settings *settings, AudioSdl *audio,
-                       Scoreboard *scoreboard, mpapi *mp_api) {
+                       Scoreboard *scoreboard, mpapi *mp_api, GameConfig *config) {
     memset(&context, 0, sizeof(context));
     context.ui = ui;
     context.settings = settings;
     context.audio = audio;
     context.scoreboard = scoreboard;
     context.mp_api = mp_api;
+    context.config = config;
     context.multiplayer = NULL;
 
     // Initialize scene registry with NULL scenes
@@ -113,12 +114,9 @@ void scene_master_shutdown(void) {
         current_scene->cleanup();
     }
 
-    // Clean up multiplayer if active
-    if (context.multiplayer != NULL) {
-        printf("[SceneMaster] Cleaning up multiplayer context\n");
-        multiplayer_destroy(context.multiplayer);
-        context.multiplayer = NULL;
-    }
+    // Note: Multiplayer context is cleaned up by main.c, not here
+    // Just clear the pointer
+    context.multiplayer = NULL;
 
     current_scene = NULL;
     current_scene_type = SCENE_QUIT;

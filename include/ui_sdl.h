@@ -97,9 +97,8 @@ typedef struct AudioSdl AudioSdl;
 void ui_sdl_render_sound_settings(UiSdl *ui, const Settings *settings, const AudioSdl *audio, int selected_index);
 UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int *out_quit);
 
-// Game over screen
+// Game over screen - poll function still used by scene_game_over.c
 #include "scoreboard.h"
-void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int combo_best, const Scoreboard *sb, int selected_index);
 UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out_quit);
 
 // Online multiplayer - include the header for Multiplayer
@@ -127,19 +126,13 @@ void ui_sdl_render_error(UiSdl *ui, const char *message);
 // Session input (Enter session ID for joining)
 int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size);
 
-// Online lobby (Waiting for players)
-void ui_sdl_render_online_lobby(UiSdl *ui, const Multiplayer *mp);
+// Online lobby (Waiting for players) - poll function still used by scene
 UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *out_quit);
 
-// Online countdown (3-2-1 countdown)
-void ui_sdl_render_online_countdown(UiSdl *ui, const Multiplayer *mp, int countdown);
-
-// Online game (Main gameplay)
-void ui_sdl_render_online_game(UiSdl *ui, const Multiplayer *mp);
+// Online game (Main gameplay) - poll function still used by scene
 Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int *out_quit);
 
-// Online game over (Final standings)
-void ui_sdl_render_online_gameover(UiSdl *ui, const Multiplayer *mp);
+// Online game over (Final standings) - poll function still used by scene
 UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit);
 
 #endif

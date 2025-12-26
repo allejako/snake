@@ -13,9 +13,10 @@
  * @param ren SDL renderer
  * @param board Board to render
  * @param cell Pixel size per cell
- * @param pad Padding around board
+ * @param ox X origin (centered position)
+ * @param oy Y origin (centered position)
  */
-void render_board(SDL_Renderer *ren, const Board *board, int cell, int pad);
+void render_board(SDL_Renderer *ren, const Board *board, int cell, int ox, int oy);
 
 /**
  * Render a single snake.
@@ -26,11 +27,12 @@ void render_board(SDL_Renderer *ren, const Board *board, int cell, int pad);
  * @param g Green color component (0-255)
  * @param b Blue color component (0-255)
  * @param cell Pixel size per cell
- * @param pad Padding around board
+ * @param ox X origin (centered position)
+ * @param oy Y origin (centered position)
  * @param board Board for bounds checking
  */
 void render_snake(SDL_Renderer *ren, const Snake *snake, int r, int g, int b,
-                  int cell, int pad, const Board *board);
+                  int cell, int ox, int oy, const Board *board);
 
 /**
  * Render food items.
@@ -39,9 +41,10 @@ void render_snake(SDL_Renderer *ren, const Snake *snake, int r, int g, int b,
  * @param food Array of food positions
  * @param count Number of food items
  * @param cell Pixel size per cell
- * @param pad Padding around board
+ * @param ox X origin (centered position)
+ * @param oy Y origin (centered position)
  */
-void render_food(SDL_Renderer *ren, const Vec2 *food, int count, int cell, int pad);
+void render_food(SDL_Renderer *ren, const Vec2 *food, int count, int cell, int ox, int oy);
 
 /**
  * Render all snakes in a multiplayer game.
@@ -51,11 +54,12 @@ void render_food(SDL_Renderer *ren, const Vec2 *food, int count, int cell, int p
  * @param players Array of multiplayer players
  * @param player_count Number of players
  * @param cell Pixel size per cell
- * @param pad Padding around board
+ * @param ox X origin (centered position)
+ * @param oy Y origin (centered position)
  * @param board Board for bounds checking
  */
 void render_all_snakes(SDL_Renderer *ren, const MultiplayerPlayer *players,
-                       int player_count, int cell, int pad, const Board *board);
+                       int player_count, int cell, int ox, int oy, const Board *board);
 
 /**
  * Render food in a multiplayer game.
@@ -63,9 +67,10 @@ void render_all_snakes(SDL_Renderer *ren, const MultiplayerPlayer *players,
  * @param ren SDL renderer
  * @param mp Multiplayer game state
  * @param cell Pixel size per cell
- * @param pad Padding around board
+ * @param ox X origin (centered position)
+ * @param oy Y origin (centered position)
  */
-void render_multiplayer_food(SDL_Renderer *ren, const Multiplayer *mp, int cell, int pad);
+void render_multiplayer_food(SDL_Renderer *ren, const Multiplayer *mp, int cell, int ox, int oy);
 
 /**
  * Render HUD for singleplayer mode.

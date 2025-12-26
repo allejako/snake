@@ -3,6 +3,8 @@
 #include "ui_helpers.h"
 #include "scoreboard.h"
 #include "game.h"
+#include "render_utils.h"
+#include "menu_utils.h"
 
 #define LAYOUT_PADDING_CELLS 4 // Local override for layout padding
 #define DEFAULT_FONT_SIZE 18
@@ -214,49 +216,11 @@ static void ui_sdl_draw_world(UiSdl *ui, const Game *g)
     int ox, oy;
     compute_layout(ui, &g->board, &ox, &oy);
 
-    // background clear
-    SET_COLOR_BG_DARK(ui->ren);
-    SDL_RenderClear(ui->ren);
-
-    // board area background
-    SDL_Rect board_bg = cell_rect(ui, ox, oy, 0, 0);
-    board_bg.w = (g->board.width + 2) * ui->cell;
-    board_bg.h = (g->board.height + 2) * ui->cell;
-
-    ui_draw_filled_rect(ui->ren, board_bg.x, board_bg.y, board_bg.w, board_bg.h,
-                        COLOR_BG_BOARD_R, COLOR_BG_BOARD_G, COLOR_BG_BOARD_B);
-
-    // border (1 cell thick)
-    ui_draw_filled_rect(ui->ren, ox, oy, (g->board.width + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox, oy + (g->board.height + 1) * ui->cell,
-                        (g->board.width + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox, oy, ui->cell, (g->board.height + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox + (g->board.width + 1) * ui->cell, oy,
-                        ui->cell, (g->board.height + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Food
-    ui_draw_filled_rect(ui->ren, ox + (1 + g->board.food.x) * ui->cell,
-                        oy + (1 + g->board.food.y) * ui->cell,
-                        ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
-
-    // Snake segments
-    for (int i = 0; i < g->snake.length; ++i)
-    {
-        Vec2 seg = g->snake.segments[i];
-        int cell_x = ox + (1 + seg.x) * ui->cell;
-        int cell_y = oy + (1 + seg.y) * ui->cell;
-
-        if (i == 0)
-            ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                             COLOR_SNAKE_HEAD_R, COLOR_SNAKE_HEAD_G, COLOR_SNAKE_HEAD_B);
-        else
-            ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                             COLOR_SNAKE_BODY_R, COLOR_SNAKE_BODY_G, COLOR_SNAKE_BODY_B);
-    }
+    // Render board, food, and snake using render_utils
+    render_board(ui->ren, &g->board, ui->cell, ox, oy);
+    render_food(ui->ren, &g->board.food, 1, ui->cell, ox, oy);
+    render_snake(ui->ren, &g->snake, COLOR_SNAKE_HEAD_R, COLOR_SNAKE_HEAD_G, COLOR_SNAKE_HEAD_B,
+                 ui->cell, ox, oy, &g->board);
 }
 static void ui_sdl_draw_hud(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
 {
@@ -897,31 +861,24 @@ void ui_sdl_render_pause_options(UiSdl *ui, const Game *g, const char *player_na
 
 void ui_sdl_render_options_menu(UiSdl *ui, const Settings *settings, int selected_index)
 {
-    SET_COLOR_BG_MENU(ui->ren);
-    SDL_RenderClear(ui->ren);
-
-    if (ui->text_ok)
+    if (!ui->text_ok)
     {
-        int cx = ui->w / 2;
-        int y = ui->h / 2 - 80;
-
-        ui_draw_text_centered(ui->ren, &ui->text, cx, y, "OPTIONS");
-        y += 60;
-
-        const char *items[] = {"Keybinds", "Sound", "Back"};
-
-        for (int i = 0; i < 3; ++i)
-        {
-            ui_draw_menu_item(ui->ren, &ui->text, cx, y + i * 32, items[i], i == selected_index);
-        }
-
-        // Build instruction string with actual keybindings
-        const char *up = settings_key_name(settings_get_key(settings, SETTING_ACTION_UP));
-        const char *down = settings_key_name(settings_get_key(settings, SETTING_ACTION_DOWN));
-        char instructions[128];
-        snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
-        ui_draw_text_centered(ui->ren, &ui->text, cx, ui->h - 40, instructions);
+        SDL_SetRenderDrawColor(ui->ren, COLOR_BG_MENU_R, COLOR_BG_MENU_G, COLOR_BG_MENU_B, 255);
+        SDL_RenderClear(ui->ren);
+        SDL_RenderPresent(ui->ren);
+        return;
     }
+
+    const char *items[] = {"Keybinds", "Sound", "Back"};
+    menu_render_standard(ui->ren, &ui->text, "OPTIONS", items, 3, selected_index, ui->w, ui->h);
+
+    // Draw instructions at the bottom
+    int cx = ui->w / 2;
+    const char *up = settings_key_name(settings_get_key(settings, SETTING_ACTION_UP));
+    const char *down = settings_key_name(settings_get_key(settings, SETTING_ACTION_DOWN));
+    char instructions[128];
+    snprintf(instructions, sizeof(instructions), "%s/%s + ENTER | ESC = Back", up, down);
+    ui_draw_text_centered(ui->ren, &ui->text, cx, ui->h - 40, instructions);
 
     SDL_RenderPresent(ui->ren);
 }
@@ -1267,76 +1224,6 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int combo_best, const Scoreboard *sb, int selected_index)
-{
-    SET_COLOR_BG_MENU(ui->ren);
-    SDL_RenderClear(ui->ren);
-
-    if (ui->text_ok)
-    {
-        // Center - Stats and Menu
-        int cx = ui->w / 2;
-        int y = ui->h / 2 - 150;
-
-        // Title
-        ui_draw_text_centered(ui->ren, &ui->text, cx, y, "GAME OVER");
-        y += 60;
-
-        // Stats
-        char line[128];
-        snprintf(line, sizeof(line), "Score: %d", score);
-        ui_draw_text_centered(ui->ren, &ui->text, cx, y, line);
-        y += 32;
-
-        snprintf(line, sizeof(line), "Fruits eaten: %d", fruits);
-        ui_draw_text_centered(ui->ren, &ui->text, cx, y, line);
-        y += 32;
-
-        int minutes = time_seconds / 60;
-        int seconds = time_seconds % 60;
-        snprintf(line, sizeof(line), "Time survived: %d:%02d", minutes, seconds);
-        ui_draw_text_centered(ui->ren, &ui->text, cx, y, line);
-        y += 32;
-
-        // Combo stats
-        int combo_tier = game_get_combo_tier(combo_best);
-        snprintf(line, sizeof(line), "Best combo: %dx (Tier %d)", combo_best, combo_tier);
-        ui_draw_text_centered(ui->ren, &ui->text, cx, y, line);
-        y += 60;
-
-        // Menu options
-        const char *items[] = {"Try again", "Quit"};
-        for (int i = 0; i < 2; ++i)
-        {
-            ui_draw_menu_item(ui->ren, &ui->text, cx, y + i * 32, items[i], i == selected_index);
-        }
-
-        // Right side - Scoreboard
-        int right_x = (ui->w * 3) / 4;
-        int sb_y = ui->h / 2 - 150;
-
-        ui_draw_text_centered(ui->ren, &ui->text, right_x, sb_y, "HIGH SCORES");
-        sb_y += 50;
-
-        // Display top 5 scores
-        int display_count = sb->count < 5 ? sb->count : 5;
-        for (int i = 0; i < display_count; ++i)
-        {
-            char row[128];
-            snprintf(row, sizeof(row), "%d) %s - %d", i + 1,
-                     sb->entries[i].name, sb->entries[i].score);
-            ui_draw_text_centered(ui->ren, &ui->text, right_x, sb_y + i * 32, row);
-        }
-
-        // Show message if no entries
-        if (display_count == 0)
-        {
-            ui_draw_text_centered(ui->ren, &ui->text, right_x, sb_y, "No scores yet");
-        }
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
 
 UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out_quit)
 {
@@ -1398,36 +1285,16 @@ static void text_sdl_draw(TextRenderer text, SDL_Renderer *ren, const char *msg,
 
 void ui_sdl_render_multiplayer_online_menu(UiSdl *ui, int selected_index)
 {
-    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
-    SDL_RenderClear(ui->ren);
-
-    const char *title = "Online Multiplayer";
-    const char *options[] = {"Host Game", "Join Game", "Back"};
-    int option_count = 3;
-
-    // Draw title
-    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
-
-    // Draw options
-    for (int i = 0; i < option_count; i++)
+    if (!ui->text_ok)
     {
-        int is_selected = (i == selected_index);
-        int y = ui->h / 2 + i * 40;
-
-        // Draw selection indicator
-        if (is_selected)
-        {
-            char indicator[128];
-            snprintf(indicator, sizeof(indicator), "> %s <", options[i]);
-            text_sdl_draw_centered(ui->text, ui->ren, indicator, ui->w / 2, y, 1.0f, 255, 255, 0);
-        }
-        else
-        {
-            text_sdl_draw_centered(ui->text, ui->ren, options[i], ui->w / 2, y, 1.0f, 180, 180, 180);
-        }
+        SDL_SetRenderDrawColor(ui->ren, COLOR_BG_MENU_R, COLOR_BG_MENU_G, COLOR_BG_MENU_B, 255);
+        SDL_RenderClear(ui->ren);
+        SDL_RenderPresent(ui->ren);
+        return;
     }
 
-    SDL_RenderPresent(ui->ren);
+    const char *options[] = {"Host Game", "Join Game", "Back"};
+    menu_render_standard(ui->ren, &ui->text, "Online Multiplayer", options, 3, selected_index, ui->w, ui->h);
 }
 
 UiMenuAction ui_sdl_poll_multiplayer_online_menu(UiSdl *ui, int *out_quit)
@@ -1458,34 +1325,21 @@ UiMenuAction ui_sdl_poll_multiplayer_online_menu(UiSdl *ui, int *out_quit)
 
 void ui_sdl_render_host_setup(UiSdl *ui, int selected_index)
 {
-    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
-    SDL_RenderClear(ui->ren);
-
-    const char *title = "Host Game";
-    const char *prompt = "Private Game?";
-    const char *options[] = {"Yes", "No"};
-    int option_count = 2;
-
-    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
-    text_sdl_draw_centered(ui->text, ui->ren, prompt, ui->w / 2, ui->h / 3, 1.0f, 200, 200, 200);
-
-    for (int i = 0; i < option_count; i++)
+    if (!ui->text_ok)
     {
-        int is_selected = (i == selected_index);
-        int y = ui->h / 2 + i * 40;
-
-        // Draw selection indicator
-        if (is_selected)
-        {
-            char indicator[128];
-            snprintf(indicator, sizeof(indicator), "> %s <", options[i]);
-            text_sdl_draw_centered(ui->text, ui->ren, indicator, ui->w / 2, y, 1.0f, 255, 255, 0);
-        }
-        else
-        {
-            text_sdl_draw_centered(ui->text, ui->ren, options[i], ui->w / 2, y, 1.0f, 180, 180, 180);
-        }
+        SDL_SetRenderDrawColor(ui->ren, COLOR_BG_MENU_R, COLOR_BG_MENU_G, COLOR_BG_MENU_B, 255);
+        SDL_RenderClear(ui->ren);
+        SDL_RenderPresent(ui->ren);
+        return;
     }
+
+    const char *options[] = {"Yes", "No"};
+    menu_render_standard(ui->ren, &ui->text, "Host Game", options, 2, selected_index, ui->w, ui->h);
+
+    // Draw prompt above the menu items
+    int cx = ui->w / 2;
+    int prompt_y = ui->h / 2 - 80;
+    ui_draw_text_centered(ui->ren, &ui->text, cx, prompt_y, "Private Game?");
 
     SDL_RenderPresent(ui->ren);
 }
@@ -1518,33 +1372,21 @@ UiMenuAction ui_sdl_poll_host_setup(UiSdl *ui, int *out_quit)
 
 void ui_sdl_render_join_select(UiSdl *ui, int selected_index)
 {
-    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
-    SDL_RenderClear(ui->ren);
-
-    const char *title = "Join Game";
-    const char *prompt = "Join Type:";
-    const char *options[] = {"Public", "Private"};
-    int option_count = 2;
-
-    text_sdl_draw_centered(ui->text, ui->ren, title, ui->w / 2, ui->h / 4, 1.5f, 255, 255, 255);
-    text_sdl_draw_centered(ui->text, ui->ren, prompt, ui->w / 2, ui->h / 3, 1.0f, 200, 200, 200);
-
-    for (int i = 0; i < option_count; i++)
+    if (!ui->text_ok)
     {
-        int is_selected = (i == selected_index);
-        int y = ui->h / 2 + i * 40;
-
-        if (is_selected)
-        {
-            char indicator[128];
-            snprintf(indicator, sizeof(indicator), "> %s <", options[i]);
-            text_sdl_draw_centered(ui->text, ui->ren, indicator, ui->w / 2, y, 1.0f, 255, 255, 0);
-        }
-        else
-        {
-            text_sdl_draw_centered(ui->text, ui->ren, options[i], ui->w / 2, y, 1.0f, 180, 180, 180);
-        }
+        SDL_SetRenderDrawColor(ui->ren, COLOR_BG_MENU_R, COLOR_BG_MENU_G, COLOR_BG_MENU_B, 255);
+        SDL_RenderClear(ui->ren);
+        SDL_RenderPresent(ui->ren);
+        return;
     }
+
+    const char *options[] = {"Public", "Private"};
+    menu_render_standard(ui->ren, &ui->text, "Join Game", options, 2, selected_index, ui->w, ui->h);
+
+    // Draw prompt above the menu items
+    int cx = ui->w / 2;
+    int prompt_y = ui->h / 2 - 80;
+    ui_draw_text_centered(ui->ren, &ui->text, cx, prompt_y, "Join Type:");
 
     SDL_RenderPresent(ui->ren);
 }
@@ -1656,11 +1498,28 @@ UiMenuAction ui_sdl_poll_lobby_browser(UiSdl *ui, int *out_quit)
 
 void ui_sdl_render_error(UiSdl *ui, const char *message)
 {
+    if (!ui->text_ok)
+    {
+        SDL_SetRenderDrawColor(ui->ren, 40, 0, 0, 255);
+        SDL_RenderClear(ui->ren);
+        SDL_RenderPresent(ui->ren);
+        return;
+    }
+
+    // Build error message with title
+    char full_message[512];
+    snprintf(full_message, sizeof(full_message), "Error\n\n%s", message);
+
+    // Use custom background color for error
     SDL_SetRenderDrawColor(ui->ren, 40, 0, 0, 255);
     SDL_RenderClear(ui->ren);
 
-    text_sdl_draw_centered(ui->text, ui->ren, "Error", ui->w / 2, ui->h / 3, 1.5f, 255, 100, 100);
-    text_sdl_draw_centered(ui->text, ui->ren, message, ui->w / 2, ui->h / 2, 1.0f, 255, 200, 200);
+    // Render using menu_render_message for centered text
+    int center_x = ui->w / 2;
+    int center_y = ui->h / 2;
+
+    ui_draw_text_centered(ui->ren, &ui->text, center_x, ui->h / 3, "Error");
+    ui_draw_text_centered(ui->ren, &ui->text, center_x, center_y, message);
 
     SDL_RenderPresent(ui->ren);
 }
@@ -1748,139 +1607,6 @@ int ui_sdl_get_session_id(UiSdl *ui, char *out_session_id, int out_size)
     return 1;
 }
 
-void ui_sdl_render_online_lobby(UiSdl *ui, const Multiplayer *mp)
-{
-    // Compute board layout (centered with border) - same as game
-    int ox, oy;
-    compute_layout(ui, &mp->board, &ox, &oy);
-
-    int board_w = mp->board.width;
-    int board_h = mp->board.height;
-
-    // Background
-    SET_COLOR_BG_DARK(ui->ren);
-    SDL_RenderClear(ui->ren);
-
-    // Board background
-    SDL_Rect board_bg;
-    board_bg.x = ox;
-    board_bg.y = oy;
-    board_bg.w = (board_w + 2) * ui->cell;
-    board_bg.h = (board_h + 2) * ui->cell;
-    ui_draw_filled_rect(ui->ren, board_bg.x, board_bg.y, board_bg.w, board_bg.h,
-                        COLOR_BG_BOARD_R, COLOR_BG_BOARD_G, COLOR_BG_BOARD_B);
-
-    // White border frame
-    ui_draw_filled_rect(ui->ren, ox, oy, (board_w + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox, oy + (board_h + 1) * ui->cell,
-                        (board_w + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox, oy, ui->cell, (board_h + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox + (board_w + 1) * ui->cell, oy,
-                        ui->cell, (board_h + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Player colors (head, body)
-    typedef struct
-    {
-        SDL_Color head;
-        SDL_Color body;
-    } PlayerColor;
-    PlayerColor player_colors[MAX_PLAYERS] = {
-        {{60, 220, 120, 255}, {35, 160, 90, 255}},  // Green
-        {{60, 160, 255, 255}, {30, 100, 200, 255}}, // Blue
-        {{255, 220, 60, 255}, {200, 170, 30, 255}}, // Yellow
-        {{255, 60, 220, 255}, {200, 30, 160, 255}}  // Magenta
-    };
-
-    // Render snakes for players who are ready
-    for (int p = 0; p < MAX_PLAYERS; p++)
-    {
-        if (!mp->players[p].joined || !mp->players[p].ready)
-            continue;
-
-        const Snake *snake = &mp->players[p].snake;
-        PlayerColor colors = player_colors[p];
-
-        for (int i = 0; i < snake->length; i++)
-        {
-            int cell_x = ox + (1 + snake->segments[i].x) * ui->cell;
-            int cell_y = oy + (1 + snake->segments[i].y) * ui->cell;
-
-            if (i == 0)
-            {
-                ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                                 colors.head.r, colors.head.g, colors.head.b);
-            }
-            else
-            {
-                ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                                 colors.body.r, colors.body.g, colors.body.b);
-            }
-        }
-    }
-
-    // HUD - show player lobby status
-    if (ui->text_ok)
-    {
-        const int pad = 10;
-        const PlayerColor *colors = (const PlayerColor *)PLAYER_COLORS;
-
-        // Show session ID at top center
-        char session_text[64];
-        snprintf(session_text, sizeof(session_text), "Session ID: %s", mp->session_id);
-        text_draw_center(ui->ren, &ui->text, ui->w / 2, 20, session_text);
-
-        for (int p = 0; p < MAX_PLAYERS; p++)
-        {
-            if (!mp->players[p].joined)
-                continue;
-
-            // Corner anchors (x,y)
-            int x, y;
-            switch (p)
-            {
-            case 0: // P1: top-left
-                x = pad;
-                y = 50;
-                break;
-            case 1: // P2: top-right
-                x = ui->w - 150;
-                y = 50;
-                break;
-            case 2: // P3: bottom-left
-                x = pad;
-                y = ui->h - 80;
-                break;
-            case 3: // P4: bottom-right
-                x = ui->w - 150;
-                y = ui->h - 80;
-                break;
-            }
-
-            char hud1[64], hud2[64], hud3[64];
-
-            snprintf(hud1, sizeof(hud1), "%s%s", mp->players[p].name,
-                     mp->players[p].is_local_player ? " (YOU)" : "");
-            snprintf(hud2, sizeof(hud2), "Wins: %d", mp->players[p].wins);
-            snprintf(hud3, sizeof(hud3), "%s", mp->players[p].ready ? "READY" : "Not Ready");
-
-            text_draw(ui->ren, &ui->text, x, y, hud1);
-            text_draw(ui->ren, &ui->text, x, y + 18, hud2);
-            text_draw(ui->ren, &ui->text, x, y + 36, hud3);
-        }
-
-        // Instructions at bottom center
-        text_draw_center(ui->ren, &ui->text, ui->w / 2, ui->h / 2,
-                         "USE key: Toggle Ready | ESC: Leave");
-        const char *hint = mp->is_host ? "ENTER: Start (when all ready)" : "Waiting for host...";
-        text_draw_center(ui->ren, &ui->text, ui->w / 2, ui->h / 2 - 30, hint);
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
 
 UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *out_quit)
 {
@@ -1907,304 +1633,7 @@ UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *
     return UI_MENU_NONE;
 }
 
-void ui_sdl_render_online_countdown(UiSdl *ui, const Multiplayer *mp, int countdown)
-{
-    // Render the game board first (same as lobby/game rendering)
-    int ox, oy;
-    compute_layout(ui, &mp->board, &ox, &oy);
 
-    int board_w = mp->board.width;
-    int board_h = mp->board.height;
-
-    // Background
-    SET_COLOR_BG_DARK(ui->ren);
-    SDL_RenderClear(ui->ren);
-
-    // Board background
-    SDL_Rect board_bg;
-    board_bg.x = ox;
-    board_bg.y = oy;
-    board_bg.w = (board_w + 2) * ui->cell;
-    board_bg.h = (board_h + 2) * ui->cell;
-    ui_draw_filled_rect(ui->ren, board_bg.x, board_bg.y, board_bg.w, board_bg.h,
-                        COLOR_BG_BOARD_R, COLOR_BG_BOARD_G, COLOR_BG_BOARD_B);
-
-    // White border frame
-    ui_draw_filled_rect(ui->ren, ox, oy, (board_w + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox, oy + (board_h + 1) * ui->cell,
-                        (board_w + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox, oy, ui->cell, (board_h + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-    ui_draw_filled_rect(ui->ren, ox + (board_w + 1) * ui->cell, oy,
-                        ui->cell, (board_h + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Player colors
-    typedef struct
-    {
-        SDL_Color head;
-        SDL_Color body;
-    } PlayerColor;
-    PlayerColor player_colors[MAX_PLAYERS] = {
-        {{60, 220, 120, 255}, {35, 160, 90, 255}},
-        {{60, 160, 255, 255}, {30, 100, 200, 255}},
-        {{255, 220, 60, 255}, {200, 170, 30, 255}},
-        {{255, 60, 220, 255}, {200, 30, 160, 255}}};
-
-    // Render snakes
-    for (int p = 0; p < MAX_PLAYERS; p++)
-    {
-        if (!mp->players[p].joined)
-            continue;
-
-        const Snake *snake = &mp->players[p].snake;
-        PlayerColor colors = player_colors[p];
-
-        for (int i = 0; i < snake->length; i++)
-        {
-            int cell_x = ox + (1 + snake->segments[i].x) * ui->cell;
-            int cell_y = oy + (1 + snake->segments[i].y) * ui->cell;
-
-            if (i == 0)
-            {
-                ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                                 colors.head.r, colors.head.g, colors.head.b);
-            }
-            else
-            {
-                ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                                 colors.body.r, colors.body.g, colors.body.b);
-            }
-        }
-    }
-
-    // Overlay semi-transparent background for countdown
-    SDL_SetRenderDrawBlendMode(ui->ren, SDL_BLENDMODE_BLEND);
-    ui_draw_filled_rect_alpha(ui->ren, 0, 0, ui->w, ui->h, 0, 0, 0, 128);
-
-    // Render countdown text on top
-    if (ui->text_ok)
-    {
-        char countdown_text[32];
-        if (countdown > 0)
-        {
-            snprintf(countdown_text, sizeof(countdown_text), "%d", countdown);
-        }
-        else
-        {
-            snprintf(countdown_text, sizeof(countdown_text), "GO!");
-        }
-        text_draw_center(ui->ren, &ui->text, ui->w / 2, ui->h / 2, countdown_text);
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
-
-void ui_sdl_render_online_game(UiSdl *ui, const Multiplayer *mp)
-{
-    // Compute board layout (centered with border) - same as singleplayer
-    int ox, oy;
-    compute_layout(ui, &mp->board, &ox, &oy);
-
-    int board_w = mp->board.width;
-    int board_h = mp->board.height;
-
-    // Board bounds for mp HUD (in pixels)
-    const int pad = 10;
-    const int left = ox;
-    const int top = oy;
-    const int right = ox + (board_w + 2) * ui->cell;
-    const int bottom = oy + (board_h + 2) * ui->cell;
-
-    // Background
-    SET_COLOR_BG_DARK(ui->ren);
-    SDL_RenderClear(ui->ren);
-
-    // Board background
-    SDL_Rect board_bg;
-    board_bg.x = ox;
-    board_bg.y = oy;
-    board_bg.w = (board_w + 2) * ui->cell;
-    board_bg.h = (board_h + 2) * ui->cell;
-    ui_draw_filled_rect(ui->ren, board_bg.x, board_bg.y, board_bg.w, board_bg.h,
-                        COLOR_BG_BOARD_R, COLOR_BG_BOARD_G, COLOR_BG_BOARD_B);
-
-    // White border frame
-    // Top border
-    ui_draw_filled_rect(ui->ren, ox, oy, (board_w + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Bottom border
-    ui_draw_filled_rect(ui->ren, ox, oy + (board_h + 1) * ui->cell,
-                        (board_w + 2) * ui->cell, ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Left border
-    ui_draw_filled_rect(ui->ren, ox, oy, ui->cell, (board_h + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Right border
-    ui_draw_filled_rect(ui->ren, ox + (board_w + 1) * ui->cell, oy,
-                        ui->cell, (board_h + 2) * ui->cell,
-                        COLOR_BORDER_R, COLOR_BORDER_G, COLOR_BORDER_B);
-
-    // Render food (orange like singleplayer)
-    ui_draw_filled_rect(ui->ren, ox + (1 + mp->board.food.x) * ui->cell,
-                        oy + (1 + mp->board.food.y) * ui->cell,
-                        ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
-
-    // Render extra food items
-    for (int i = 0; i < mp->food_count; i++)
-    {
-        ui_draw_filled_rect(ui->ren, ox + (1 + mp->food[i].x) * ui->cell,
-                            oy + (1 + mp->food[i].y) * ui->cell,
-                            ui->cell, ui->cell, COLOR_FOOD_R, COLOR_FOOD_G, COLOR_FOOD_B);
-    }
-
-    // Player colors (head, body)
-    typedef struct
-    {
-        SDL_Color head;
-        SDL_Color body;
-    } PlayerColor;
-    PlayerColor player_colors[MAX_PLAYERS] = {
-        {{60, 220, 120, 255}, {35, 160, 90, 255}},  // Green
-        {{60, 160, 255, 255}, {30, 100, 200, 255}}, // Blue
-        {{255, 220, 60, 255}, {200, 170, 30, 255}}, // Yellow
-        {{255, 60, 220, 255}, {200, 30, 160, 255}}  // Magenta
-    };
-
-    // Render players' snakes
-    for (int p = 0; p < MAX_PLAYERS; p++)
-    {
-        if (!mp->players[p].joined)
-            continue;
-
-        const Snake *snake = &mp->players[p].snake;
-        PlayerColor colors = player_colors[p];
-
-        for (int i = 0; i < snake->length; i++)
-        {
-            int cell_x = ox + (1 + snake->segments[i].x) * ui->cell;
-            int cell_y = oy + (1 + snake->segments[i].y) * ui->cell;
-
-            if (i == 0)
-            {
-                ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                                 colors.head.r, colors.head.g, colors.head.b);
-            }
-            else
-            {
-                ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
-                                                 colors.body.r, colors.body.g, colors.body.b);
-            }
-        }
-    }
-
-    // HUD - show player info
-    if (ui->text_ok)
-    {
-        int hud_y = oy - 40;
-
-        for (int p = 0; p < MAX_PLAYERS; p++)
-        {
-            if (!mp->players[p].joined)
-                continue;
-
-            // Corner anchors (x,y)
-            int x = left, y = top; // default
-            switch (p)
-            {
-            case 0: // P1: top-left
-                x = pad;
-                y = pad;
-                break;
-            case 1:              // P2: top-right
-                x = ui->w - 200; // Reserve space for text
-                y = pad;
-                break;
-            case 2: // P3: bottom-left
-                x = pad;
-                y = ui->h - 100;
-                break;
-            case 3: // P4: bottom-right
-                x = ui->w - 200;
-                y = ui->h - 100;
-                break;
-            }
-
-            char hud1[64], hud2[64], hud3[64];
-
-            snprintf(hud1, sizeof(hud1), "%s%s", mp->players[p].name,
-                     mp->players[p].is_local_player ? " (YOU)" : "");
-            snprintf(hud2, sizeof(hud2), "Score: %d | Wins: %d",
-                     mp->players[p].score, mp->players[p].wins);
-
-            if (mp->players[p].is_local_player)
-            {
-                snprintf(hud3, sizeof(hud3), "Lives: %d | Combo x%d",
-                         mp->players[p].lives, mp->players[p].combo_count);
-            }
-            else
-            {
-                snprintf(hud3, sizeof(hud3), "Lives: %d", mp->players[p].lives);
-            }
-
-            text_draw(ui->ren, &ui->text, x, y, hud1);
-            text_draw(ui->ren, &ui->text, x, y + 18, hud2);
-            text_draw(ui->ren, &ui->text, x, y + 36, hud3);
-
-            // Draw combo bar if player has an active combo
-            if (mp->players[p].combo_count > 0 && mp->players[p].combo_expiry_time > 0)
-            {
-                unsigned int current_time = SDL_GetTicks();
-                int bar_width = 150;
-                int bar_height = 6;
-                int bar_y = y + 54;
-
-                // Calculate time remaining
-                float time_remaining = 0.0f;
-                if (current_time < mp->players[p].combo_expiry_time)
-                {
-                    time_remaining = (float)(mp->players[p].combo_expiry_time - current_time) / (float)mp->combo_window_ms;
-                }
-
-                // Clamp to [0, 1]
-                if (time_remaining < 0.0f)
-                    time_remaining = 0.0f;
-                if (time_remaining > 1.0f)
-                    time_remaining = 1.0f;
-
-                int filled_width = (int)(bar_width * time_remaining);
-
-                // Draw bar background (dark gray)
-                SDL_Rect bar_bg = {x, bar_y, bar_width, bar_height};
-                SDL_SetRenderDrawColor(ui->ren, 40, 40, 40, 255);
-                SDL_RenderFillRect(ui->ren, &bar_bg);
-
-                // Draw filled portion (based on player color from multiplayer_game.h)
-                if (filled_width > 0)
-                {
-                    SDL_Rect bar_fill = {x, bar_y, filled_width, bar_height};
-                    SDL_SetRenderDrawColor(ui->ren, PLAYER_COLORS[p].r, PLAYER_COLORS[p].g, PLAYER_COLORS[p].b, 255);
-                    SDL_RenderFillRect(ui->ren, &bar_fill);
-                }
-
-                // Draw bar border (white)
-                SDL_SetRenderDrawColor(ui->ren, 255, 255, 255, 255);
-                SDL_RenderDrawRect(ui->ren, &bar_bg);
-            }
-        }
-
-        // Instructions at bottom
-        text_draw(ui->ren, &ui->text, ox, oy + board_bg.h + 8,
-                  "Use keybinds to move | ESC: quit");
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
 
 Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int *out_quit)
 {
@@ -2235,62 +1664,6 @@ Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int
     return -1; // No input
 }
 
-void ui_sdl_render_online_gameover(UiSdl *ui, const Multiplayer *mp)
-{
-    SDL_SetRenderDrawColor(ui->ren, 0, 0, 0, 255);
-    SDL_RenderClear(ui->ren);
-
-    text_sdl_draw_centered(ui->text, ui->ren, "GAME OVER", ui->w / 2, ui->h / 4, 2.0f, 255, 0, 0);
-
-    // Find the winner (player who is alive or has highest score)
-    int winner_idx = -1;
-    int highest_score = -1;
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        if (mp->players[i].joined)
-        {
-            if (mp->players[i].alive ||
-                (winner_idx == -1 && mp->players[i].score > highest_score))
-            {
-                winner_idx = i;
-                highest_score = mp->players[i].score;
-            }
-        }
-    }
-
-    // Show final standings
-    int y = ui->h / 3 + 40;
-    const PlayerColor *colors = (const PlayerColor *)PLAYER_COLORS;
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        if (mp->players[i].joined)
-        {
-            char player_text[128];
-            const char *name_suffix = mp->players[i].is_local_player ? " (YOU)" : "";
-            int is_winner = (i == winner_idx);
-
-            if (is_winner)
-            {
-                snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d  << WINNER! >>",
-                         mp->players[i].name, name_suffix,
-                         mp->players[i].score, mp->players[i].combo_best);
-                // Draw winner in bright gold/yellow
-                text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 250, y, 1.0f, 255, 215, 0);
-            }
-            else
-            {
-                snprintf(player_text, sizeof(player_text), "%s%s: Score %d, Combo Best %d",
-                         mp->players[i].name, name_suffix,
-                         mp->players[i].score, mp->players[i].combo_best);
-                text_sdl_draw(ui->text, ui->ren, player_text, ui->w / 2 - 200, y, 0.9f,
-                              colors[i].r, colors[i].g, colors[i].b);
-            }
-            y += 30;
-        }
-    }
-
-    SDL_RenderPresent(ui->ren);
-}
 
 UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit)
 {

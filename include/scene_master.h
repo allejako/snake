@@ -6,6 +6,7 @@
 #include "audio_sdl.h"
 #include "scoreboard.h"
 #include "multiplayer.h"
+#include "config.h"
 #include "../src/mpapi/c_client/libs/mpapi.h"
 
 /**
@@ -49,6 +50,7 @@ typedef struct {
     Scoreboard *scoreboard;
     mpapi *mp_api;
     Multiplayer *multiplayer;  // NULL when not in multiplayer mode
+    GameConfig *config;  // Game configuration
 } SceneContext;
 
 /**
@@ -60,9 +62,10 @@ typedef struct {
  * @param audio Audio system instance
  * @param scoreboard Scoreboard instance
  * @param mp_api MPAPI instance for multiplayer
+ * @param config Game configuration
  */
 void scene_master_init(UiSdl *ui, Settings *settings, AudioSdl *audio,
-                       Scoreboard *scoreboard, mpapi *mp_api);
+                       Scoreboard *scoreboard, mpapi *mp_api, GameConfig *config);
 
 /**
  * Transition to a new scene.
@@ -100,5 +103,14 @@ SceneContext *scene_master_get_context(void);
  * Calls cleanup() on current scene and frees resources.
  */
 void scene_master_shutdown(void);
+
+/**
+ * Register a scene implementation.
+ * Called by scene files to register themselves with the scene master.
+ *
+ * @param type Scene type to register
+ * @param scene Scene implementation
+ */
+void scene_master_register_scene(SceneType type, Scene scene);
 
 #endif

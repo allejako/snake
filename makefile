@@ -21,8 +21,12 @@ MPAPI_OBJ := $(patsubst $(MPAPI_DIR)/%.c,$(BUILD_DIR)/mpapi_%.o,$(MPAPI_SRC))
 SRC := $(wildcard $(SRC_DIR)/*.c)
 OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC))
 
+# Scene sources
+SCENE_SRC := $(wildcard $(SRC_DIR)/scenes/*.c)
+SCENE_OBJ := $(patsubst $(SRC_DIR)/scenes/%.c,$(BUILD_DIR)/scenes/%.o,$(SCENE_SRC))
+
 # Combine all object files
-ALL_OBJ := $(OBJ) $(MPAPI_OBJ)
+ALL_OBJ := $(OBJ) $(MPAPI_OBJ) $(SCENE_OBJ)
 
 BIN := $(BIN_DIR)/snake_sdl.exe
 
@@ -44,6 +48,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 $(BUILD_DIR)/mpapi_%.o: $(MPAPI_DIR)/%.c | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(MPAPI_DIR) -c $< -o $@
+
+# ---- Compilation: scene sources -> build/scenes/%.o ----
+$(BUILD_DIR)/scenes/%.o: $(SRC_DIR)/scenes/%.c | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/scenes
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(TTF_CFLAGS) $(MIXER_CFLAGS) -c $< -o $@
 
 # ---- Create directories if they don't exist ----
 $(BUILD_DIR):
