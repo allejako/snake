@@ -1333,6 +1333,7 @@ UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out
     return UI_MENU_NONE;
 }
 
+#ifndef WINDOWS_BUILD
 // ============================================================================
 // Online Multiplayer UI Functions
 // ============================================================================
@@ -2273,3 +2274,4 @@ UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit)
     }
     return UI_MENU_NONE;
 }
+#endif // WINDOWS_BUILD
