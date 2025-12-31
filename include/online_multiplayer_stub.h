@@ -50,9 +50,25 @@ static inline OnlineMultiplayerContext* online_multiplayer_create(void) { return
 static inline void online_multiplayer_destroy(OnlineMultiplayerContext *ctx) { (void)ctx; }
 static inline int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int w, int h, const char *name) { (void)ctx; (void)is_private; (void)w; (void)h; (void)name; return MPAPI_ERROR; }
 static inline int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int w, int h, const char *name) { (void)ctx; (void)session_id; (void)w; (void)h; (void)name; return MPAPI_ERROR; }
+static inline void online_multiplayer_toggle_ready(OnlineMultiplayerContext *ctx) { (void)ctx; }
+static inline int online_multiplayer_all_players_ready(OnlineMultiplayerContext *ctx) { (void)ctx; return 0; }
+static inline void online_multiplayer_start_game(OnlineMultiplayerContext *ctx) { (void)ctx; }
+static inline void online_multiplayer_client_send_input(OnlineMultiplayerContext *ctx, Direction dir) { (void)ctx; (void)dir; }
+static inline void online_multiplayer_host_broadcast_state(OnlineMultiplayerContext *ctx) { (void)ctx; }
+static inline void online_multiplayer_reset_ready_states(OnlineMultiplayerContext *ctx) { (void)ctx; }
 static inline mpapi* mpapi_create(const char *host, int port, const char *uuid) { (void)host; (void)port; (void)uuid; return NULL; }
 static inline void mpapi_destroy(mpapi *api) { (void)api; }
 static inline int mpapi_game(mpapi *api, const char *msg, void *data) { (void)api; (void)msg; (void)data; return MPAPI_ERROR; }
+
+// Stub JSON functions
+static inline json_t* json_object(void) { return NULL; }
+static inline json_t* json_array(void) { return NULL; }
+static inline json_t* json_string(const char *value) { (void)value; return NULL; }
+static inline json_t* json_integer(int value) { (void)value; return NULL; }
+static inline json_t* json_boolean(int value) { (void)value; return NULL; }
+static inline void json_object_set_new(json_t *obj, const char *key, json_t *value) { (void)obj; (void)key; (void)value; }
+static inline void json_array_append_new(json_t *arr, json_t *value) { (void)arr; (void)value; }
+static inline void json_decref(json_t *json) { (void)json; }
 
 // Stub UI functions
 static inline void ui_sdl_render_multiplayer_online_menu(UiSdl *ui, int selected_index) { (void)ui; (void)selected_index; }
@@ -69,7 +85,7 @@ static inline void ui_sdl_render_online_lobby(UiSdl *ui, const OnlineMultiplayer
 static inline UiMenuAction ui_sdl_poll_online_lobby(UiSdl *ui, const Settings *settings, int *out_quit) { (void)ui; (void)settings; (void)out_quit; return UI_MENU_BACK; }
 static inline void ui_sdl_render_online_countdown(UiSdl *ui, const OnlineMultiplayerContext *ctx, int countdown) { (void)ui; (void)ctx; (void)countdown; }
 static inline void ui_sdl_render_online_game(UiSdl *ui, const OnlineMultiplayerContext *ctx) { (void)ui; (void)ctx; }
-static inline Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int *out_quit) { (void)ui; (void)settings; (void)out_quit; return DIR_NONE; }
+static inline Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int *out_quit) { (void)ui; (void)settings; (void)out_quit; return (Direction)0; }
 static inline void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ctx) { (void)ui; (void)ctx; }
 static inline UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit) { (void)ui; (void)out_quit; return UI_MENU_BACK; }
 
