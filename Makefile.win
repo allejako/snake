@@ -1,0 +1,41 @@
+# Windows Makefile (for use with MinGW on Windows)
+CC = gcc
+WINDRES = windres
+
+CFLAGS = -Wall -Wextra -std=c11 -O2 -DWINDOWS_BUILD -Iinclude
+SDL_CFLAGS = -Dmain=SDL_main
+SDL_LIBS = -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf
+EXTRA_LIBS = -lm
+
+SRC_DIR = src
+BUILD_DIR = build_windows
+BIN_DIR = bin_windows
+
+# Exclude online multiplayer for Windows
+EXCLUDE_SRC = $(SRC_DIR)/online_multiplayer.c
+SRC = $(filter-out $(EXCLUDE_SRC),$(wildcard $(SRC_DIR)/*.c))
+OBJ = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC))
+
+BIN = $(BIN_DIR)/snake.exe
+
+.PHONY: all clean
+
+all: $(BIN)
+
+$(BIN): $(OBJ) | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(OBJ) -o $@ $(SDL_LIBS) $(EXTRA_LIBS)
+	@echo.
+	@echo Build complete! Executable: $(BIN)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR):
+	@if not exist "$(BUILD_DIR)" mkdir $(BUILD_DIR)
+
+$(BIN_DIR):
+	@if not exist "$(BIN_DIR)" mkdir $(BIN_DIR)
+
+clean:
+	@if exist "$(BUILD_DIR)" rmdir /S /Q $(BUILD_DIR)
+	@if exist "$(BIN_DIR)" rmdir /S /Q $(BIN_DIR)
