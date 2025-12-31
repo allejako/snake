@@ -24,18 +24,17 @@ all: $(BIN)
 
 $(BIN): $(OBJ) | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(OBJ) -o $@ $(SDL_LIBS) $(EXTRA_LIBS)
-	@echo.
-	@echo Build complete! Executable: $(BIN)
+	@echo ""
+	@echo "Build complete! Executable: $(BIN)"
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR):
-	@if not exist "$(BUILD_DIR)" mkdir $(BUILD_DIR)
+	mkdir -p $(BUILD_DIR)
 
 $(BIN_DIR):
-	@if not exist "$(BIN_DIR)" mkdir $(BIN_DIR)
+	mkdir -p $(BIN_DIR)
 
 clean:
-	@if exist "$(BUILD_DIR)" rmdir /S /Q $(BUILD_DIR)
-	@if exist "$(BIN_DIR)" rmdir /S /Q $(BIN_DIR)
+	rm -rf $(BUILD_DIR) $(BIN_DIR)
