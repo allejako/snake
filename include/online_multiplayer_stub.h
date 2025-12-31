@@ -46,7 +46,11 @@ typedef enum {
 } mpapi_result;
 
 // Stub backend functions
-static inline OnlineMultiplayerContext* online_multiplayer_create(void) { return NULL; }
+static inline OnlineMultiplayerContext* online_multiplayer_create(void) {
+    static OnlineMultiplayerContext dummy_ctx = {0};
+    dummy_ctx.state = ONLINE_STATE_DISCONNECTED;
+    return &dummy_ctx;
+}
 static inline void online_multiplayer_destroy(OnlineMultiplayerContext *ctx) { (void)ctx; }
 static inline int online_multiplayer_host(OnlineMultiplayerContext *ctx, int is_private, int w, int h, const char *name) { (void)ctx; (void)is_private; (void)w; (void)h; (void)name; return MPAPI_ERROR; }
 static inline int online_multiplayer_join(OnlineMultiplayerContext *ctx, const char *session_id, int w, int h, const char *name) { (void)ctx; (void)session_id; (void)w; (void)h; (void)name; return MPAPI_ERROR; }
@@ -56,7 +60,11 @@ static inline void online_multiplayer_start_game(OnlineMultiplayerContext *ctx) 
 static inline void online_multiplayer_client_send_input(OnlineMultiplayerContext *ctx, Direction dir) { (void)ctx; (void)dir; }
 static inline void online_multiplayer_host_broadcast_state(OnlineMultiplayerContext *ctx) { (void)ctx; }
 static inline void online_multiplayer_reset_ready_states(OnlineMultiplayerContext *ctx) { (void)ctx; }
-static inline mpapi* mpapi_create(const char *host, int port, const char *uuid) { (void)host; (void)port; (void)uuid; return NULL; }
+static inline mpapi* mpapi_create(const char *host, int port, const char *uuid) {
+    static mpapi dummy_api = {0};
+    (void)host; (void)port; (void)uuid;
+    return &dummy_api;
+}
 static inline void mpapi_destroy(mpapi *api) { (void)api; }
 static inline int mpapi_game(mpapi *api, const char *msg, void *data) { (void)api; (void)msg; (void)data; return MPAPI_ERROR; }
 
