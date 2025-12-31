@@ -1,0 +1,41 @@
+# Windows cross-compilation makefile using MinGW-w64
+CC := x86_64-w64-mingw32-gcc
+WINDRES := x86_64-w64-mingw32-windres
+
+CFLAGS := -Wall -Wextra -std=c11 -O2 -DWINDOWS_BUILD -Iinclude
+# Point to MinGW SDL2 development libraries (adjust path as needed)
+SDL2_PREFIX := /usr/x86_64-w64-mingw32
+SDL_CFLAGS := -I$(SDL2_PREFIX)/include/SDL2 -Dmain=SDL_main
+SDL_LIBS := -L$(SDL2_PREFIX)/lib -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf
+EXTRA_LIBS := -lm -static-libgcc -static-libstdc++
+
+SRC_DIR := src
+BUILD_DIR := build_windows
+BIN_DIR := bin_windows
+INCLUDE_DIR := include
+
+# Filter out mpapi and online multiplayer sources for Windows
+EXCLUDE_SRC := $(SRC_DIR)/online_multiplayer.c
+SRC := $(filter-out $(EXCLUDE_SRC),$(wildcard $(SRC_DIR)/*.c))
+OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC))
+
+BIN := $(BIN_DIR)/snake.exe
+
+.PHONY: all clean
+
+all: $(BIN)
+
+$(BIN): $(OBJ) | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(OBJ) -o $@ $(SDL_LIBS) $(EXTRA_LIBS)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BIN_DIR):
+	mkdir -p $(BIN_DIR)
+
+clean:
+	rm -rf $(BUILD_DIR) $(BIN_DIR)

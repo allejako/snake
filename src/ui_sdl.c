@@ -111,6 +111,31 @@ UiSdl *ui_sdl_create(const char *title, int window_w, int window_h)
         fprintf(stderr, "Could not load font: %s\n", TTF_GetError());
     }
 
+    // Initialize speedfx
+    SDL_RendererInfo info;
+    SDL_GetRendererInfo(ui->ren, &info);
+
+    ui->world_target = NULL;
+    ui->fx_last_frame_ms = 0;
+    speedfx_init(&ui->speedfx, ui->w, ui->h);
+    ui->last_combo_count = 0;
+    ui->last_combo_tier = 0;
+    ui->combo_flash_until_ms = 0;
+
+    if (info.flags & SDL_RENDERER_TARGETTEXTURE)
+    {
+        ui->world_target = SDL_CreateTexture(
+            ui->ren,
+            SDL_PIXELFORMAT_RGBA8888,
+            SDL_TEXTUREACCESS_TARGET,
+            ui->w,
+            ui->h);
+        if (ui->world_target)
+        {
+            SDL_SetTextureBlendMode(ui->world_target, SDL_BLENDMODE_BLEND);
+        }
+    }
+
     return ui;
 }
 
@@ -118,6 +143,8 @@ void ui_sdl_destroy(UiSdl *ui)
 {
     if (!ui)
         return;
+    if (ui->world_target)
+        SDL_DestroyTexture(ui->world_target);
     if (ui->ren)
         SDL_DestroyRenderer(ui->ren);
     if (ui->win)
@@ -181,11 +208,10 @@ int ui_sdl_poll(UiSdl *ui, const Settings *settings, int *out_has_dir, Direction
     SDL_GetWindowSize(ui->win, &ui->w, &ui->h);
     return 1;
 }
-void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
-{
-    int ox, oy;
-    compute_layout(ui, &g->board, &ox, &oy);
 
+// Helper: render world (board, food, snake) without HUD
+static void ui_sdl_draw_world(UiSdl *ui, const Game *g, int ox, int oy)
+{
     // bakgrund
     SET_COLOR_BG_DARK(ui->ren);
     SDL_RenderClear(ui->ren);
@@ -236,7 +262,102 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
             ui_draw_filled_rect_with_outline(ui->ren, cell_x, cell_y, ui->cell, ui->cell,
                                 COLOR_SNAKE_BODY_R, COLOR_SNAKE_BODY_G, COLOR_SNAKE_BODY_B);
     }
+}
 
+void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int debug_mode, unsigned int current_tick_ms)
+{
+    int ox, oy;
+    compute_layout(ui, &g->board, &ox, &oy);
+
+    // Calculate board rect and snake head position (for effects)
+    SDL_Rect board_bg = cell_rect(ui, ox, oy, 0, 0);
+    board_bg.w = (g->board.width + 2) * ui->cell;
+    board_bg.h = (g->board.height + 2) * ui->cell;
+
+    float hx = 0.0f, hy = 0.0f;
+    if (g->snake.length > 0)
+    {
+        Vec2 head = g->snake.segments[0];
+        hx = (float)(ox + (1 + head.x) * ui->cell + ui->cell * 0.5f);
+        hy = (float)(oy + (1 + head.y) * ui->cell + ui->cell * 0.5f);
+    }
+    else
+    {
+        hx = (float)(ox + board_bg.w * 0.5f);
+        hy = (float)(oy + board_bg.h * 0.5f);
+    }
+
+    // Update speedfx
+    unsigned int now = SDL_GetTicks();
+    float dt = (ui->fx_last_frame_ms > 0) ? (now - ui->fx_last_frame_ms) / 1000.0f : 0.016f;
+    ui->fx_last_frame_ms = now;
+
+    speedfx_update(&ui->speedfx, dt, current_tick_ms, SPEED_START_MS, SPEED_FLOOR_MS, board_bg);
+    speedfx_update_rings(&ui->speedfx, dt);
+
+    // Handle combo effects
+    int current_tier = game_get_combo_tier(g->combo_count);
+    int combo_increased = (g->combo_count > ui->last_combo_count);
+    int tier_up = (current_tier > ui->last_combo_tier);
+
+    if (combo_increased)
+    {
+        // Punch effect on tier up
+        if (tier_up)
+        {
+            speedfx_combo_punch(&ui->speedfx, (float)current_tier, 0.2f);
+        }
+
+        // Ring effect on every combo (stronger on tier up)
+        float amp = tier_up ? 0.25f : 0.2f;
+        speedfx_combo_ring(&ui->speedfx, hx, hy, current_tier, amp);
+    }
+
+    ui->last_combo_count = g->combo_count;
+    ui->last_combo_tier = current_tier;
+
+    // Render world (with or without effects)
+    if (ui->world_target)
+    {
+        // Render world to texture
+        SDL_SetRenderTarget(ui->ren, ui->world_target);
+        ui_sdl_draw_world(ui, g, ox, oy);
+
+        // Render texture to screen with shake
+        SDL_SetRenderTarget(ui->ren, NULL);
+        SET_COLOR_BG_DARK(ui->ren);
+        SDL_RenderClear(ui->ren);
+
+        SDL_Rect dst = {0, 0, ui->w, ui->h};
+        speedfx_apply_shake_rect(&ui->speedfx, &dst);
+        SDL_RenderCopy(ui->ren, ui->world_target, NULL, &dst);
+
+        // Render speedfx particles and rings on top
+        speedfx_render_particles(ui->ren, &ui->speedfx);
+
+        // Render combo rings with color based on tier
+        if (current_tier >= 7)
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T7_R, COLOR_COMBO_T7_G, COLOR_COMBO_T7_B);
+        else if (current_tier >= 6)
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T6_R, COLOR_COMBO_T6_G, COLOR_COMBO_T6_B);
+        else if (current_tier >= 5)
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T5_R, COLOR_COMBO_T5_G, COLOR_COMBO_T5_B);
+        else if (current_tier >= 4)
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T4_R, COLOR_COMBO_T4_G, COLOR_COMBO_T4_B);
+        else if (current_tier >= 3)
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T3_R, COLOR_COMBO_T3_G, COLOR_COMBO_T3_B);
+        else if (current_tier >= 2)
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T2_R, COLOR_COMBO_T2_G, COLOR_COMBO_T2_B);
+        else
+            speedfx_render_rings(ui->ren, &ui->speedfx, COLOR_COMBO_T1_R, COLOR_COMBO_T1_G, COLOR_COMBO_T1_B);
+    }
+    else
+    {
+        // Fallback: render directly without effects
+        ui_sdl_draw_world(ui, g, ox, oy);
+    }
+
+    // Render HUD on top of everything
     if (ui->text_ok)
     {
         char hud[128];
@@ -248,13 +369,12 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
         {
             char debug_speed[64];
             char debug_combo[64];
-            int debug_y = ui->h - 50;  // Position from bottom
-            int debug_x = ui->w - 250; // Position from right
+            int debug_y = ui->h - 50;
+            int debug_x = ui->w - 250;
 
             snprintf(debug_speed, sizeof(debug_speed), "Speed: %ums/tick", current_tick_ms);
             text_draw(ui->ren, &ui->text, debug_x, debug_y, debug_speed);
 
-            // Calculate current combo window ticks
             int combo_window_ticks = g->combo_window_ms / current_tick_ms;
             snprintf(debug_combo, sizeof(debug_combo), "Combo Window: %d ticks", combo_window_ticks);
             text_draw(ui->ren, &ui->text, debug_x, debug_y + 22, debug_combo);
@@ -263,20 +383,16 @@ void ui_sdl_draw_game(UiSdl *ui, const Game *g, const char *player_name, int deb
         // Combo display
         if (g->combo_count > 0)
         {
-            unsigned int now = (unsigned int)SDL_GetTicks();
-
-            // Calculate bar width to match board + border size
+            unsigned int now_ui = (unsigned int)SDL_GetTicks();
             int bar_width = (g->board.width + 2) * ui->cell;
             int board_center_x = ox + bar_width / 2;
-
-            // Position the bar centered between top of screen and top of game border
             int bar_x = ox;
             int bar_y = (oy / 2) - (COMBO_BAR_HEIGHT / 2);
 
             // Draw combo timer bar (if active)
-            if (now < g->combo_expiry_time)
+            if (now_ui < g->combo_expiry_time)
             {
-                float time_remaining = (float)(g->combo_expiry_time - now);
+                float time_remaining = (float)(g->combo_expiry_time - now_ui);
                 float time_total = (float)g->combo_window_ms;
                 float fill_ratio = time_remaining / time_total;
 

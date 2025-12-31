@@ -103,6 +103,7 @@ UiMenuAction ui_sdl_poll_sound_settings(UiSdl *ui, const Settings *settings, int
 void ui_sdl_render_game_over(UiSdl *ui, int score, int fruits, int time_seconds, int combo_best, const Scoreboard *sb, int selected_index);
 UiMenuAction ui_sdl_poll_game_over(UiSdl *ui, const Settings *settings, int *out_quit);
 
+#ifndef WINDOWS_BUILD
 // Online multiplayer - include the header for OnlineMultiplayerContext
 #include "online_multiplayer.h"
 
@@ -142,5 +143,6 @@ Direction ui_sdl_poll_online_game_input(UiSdl *ui, const Settings *settings, int
 // Online game over (Final standings)
 void ui_sdl_render_online_gameover(UiSdl *ui, const OnlineMultiplayerContext *ctx);
 UiMenuAction ui_sdl_poll_online_gameover(UiSdl *ui, int *out_quit);
+#endif // WINDOWS_BUILD
 
 #endif
