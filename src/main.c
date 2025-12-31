@@ -7,7 +7,11 @@
 #include "config.h"
 #include "game.h"
 #include "multiplayer_game.h"
+#ifdef WINDOWS_BUILD
+#include "online_multiplayer_stub.h"
+#else
 #include "online_multiplayer.h"
+#endif
 #include "common.h"
 #include "scoreboard.h"
 #include "ui_sdl.h"
